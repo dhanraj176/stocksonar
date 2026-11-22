@@ -111,4 +111,37 @@ describe("generateReport", () => {
       expect(result).not.toHaveProperty("report");
     });
   });
+
+  describe("when the report passes every check", () => {
+    it("returns ok with the agent's report", async () => {
+      const result = await generateReport("AAPL", deps());
+
+      expect(result).toEqual({ status: "ok", report: validReport });
+    });
+
+    it("fetches for the ticker and gives the agent the fetched sources", async () => {
+      const pipeline = deps();
+
+      await generateReport("AAPL", pipeline);
+
+      expect(pipeline.fetchSources).toHaveBeenCalledWith("AAPL");
+      expect(pipeline.writeReport).toHaveBeenCalledWith("AAPL", sources);
+    });
+
+    it("strips fields the report type does not have", async () => {
+      const output = {
+        ...validReport,
+        recommendation: "BUY",
+        bull: [{ ...validClaim, confidence: "high" }],
+      };
+      const pipeline = deps({ writeReport: vi.fn().mockResolvedValue(output) });
+
+      const result = await generateReport("AAPL", pipeline);
+
+      expect(result).toStrictEqual({
+        status: "ok",
+        report: { bull: [validClaim], bear: validReport.bear },
+      });
+    });
+  });
 });
