@@ -72,4 +72,43 @@ describe("generateReport", () => {
       });
     });
   });
+
+  describe("when the report fails the citation check", () => {
+    it("rejects with the checker's errors for an unfetched source", async () => {
+      const output = {
+        bull: [validClaim],
+        bear: [{ text: "A lawsuit is pending.", sourceIds: ["src-made-up"] }],
+      };
+      const pipeline = deps({ writeReport: vi.fn().mockResolvedValue(output) });
+
+      const result = await generateReport("AAPL", pipeline);
+
+      expect(result).toEqual({
+        status: "rejected",
+        errors: [{ section: "bear", claim: 1, reason: "unknown-source", sourceId: "src-made-up" }],
+      });
+    });
+
+    it("rejects an empty bull section", async () => {
+      const output = { bull: [], bear: [validClaim] };
+      const pipeline = deps({ writeReport: vi.fn().mockResolvedValue(output) });
+
+      const result = await generateReport("AAPL", pipeline);
+
+      expect(result).toEqual({
+        status: "rejected",
+        errors: [{ section: "bull", claim: null, reason: "empty-section" }],
+      });
+    });
+
+    it("never returns the rejected report", async () => {
+      const output = { bull: [{ text: "Margins grew.", sourceIds: [] }], bear: [validClaim] };
+      const pipeline = deps({ writeReport: vi.fn().mockResolvedValue(output) });
+
+      const result = await generateReport("AAPL", pipeline);
+
+      expect(result.status).toBe("rejected");
+      expect(result).not.toHaveProperty("report");
+    });
+  });
 });
