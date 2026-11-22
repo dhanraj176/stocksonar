@@ -58,4 +58,27 @@ describe("validateReport", () => {
       expect(result.errors).toEqual([]);
     });
   });
+
+  describe("AC2: a report needs at least one bull claim and one bear claim", () => {
+    it("rejects a report with no bull claims", () => {
+      const result = validateReport({ bull: [], bear: [validClaim] }, sources);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.map((e) => e.reason)).toEqual(["empty-section"]);
+    });
+
+    it("rejects a report with no bear claims", () => {
+      const result = validateReport({ bull: [validClaim], bear: [] }, sources);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.map((e) => e.reason)).toEqual(["empty-section"]);
+    });
+
+    it("reports both sections when both are empty", () => {
+      const result = validateReport({ bull: [], bear: [] }, sources);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.map((e) => e.reason)).toEqual(["empty-section", "empty-section"]);
+    });
+  });
 });
