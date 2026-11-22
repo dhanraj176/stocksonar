@@ -144,4 +144,20 @@ describe("generateReport", () => {
       });
     });
   });
+
+  describe("when a dependency throws", () => {
+    it("passes a fetchSources failure through unchanged", async () => {
+      const failure = new Error("EDGAR is down");
+      const pipeline = deps({ fetchSources: vi.fn().mockRejectedValue(failure) });
+
+      await expect(generateReport("AAPL", pipeline)).rejects.toBe(failure);
+    });
+
+    it("passes a writeReport failure through unchanged", async () => {
+      const failure = new Error("agent timed out");
+      const pipeline = deps({ writeReport: vi.fn().mockRejectedValue(failure) });
+
+      await expect(generateReport("AAPL", pipeline)).rejects.toBe(failure);
+    });
+  });
 });
