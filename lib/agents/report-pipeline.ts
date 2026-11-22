@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CitationError, FetchedSource, Report } from "@/lib/domain/citation-check";
+import { validateReport, type CitationError, type FetchedSource, type Report } from "@/lib/domain/citation-check";
 
 export type ReportPipelineDeps = {
   fetchSources: (ticker: string) => Promise<FetchedSource[]>;
@@ -41,6 +41,11 @@ export async function generateReport(ticker: string, deps: ReportPipelineDeps): 
   if (!parsed.success) {
     const issues = parsed.error.issues.map((issue) => `${issue.path.map(String).join(".")}: ${issue.message}`);
     return { status: "rejected", errors: [{ reason: "malformed-report", issues }] };
+  }
+
+  const check = validateReport(parsed.data, sources);
+  if (!check.valid) {
+    return { status: "rejected", errors: check.errors };
   }
 
   throw new Error("not implemented");
