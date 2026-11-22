@@ -48,5 +48,5 @@ export async function generateReport(ticker: string, deps: ReportPipelineDeps): 
     return { status: "rejected", errors: check.errors };
   }
 
-  throw new Error("not implemented");
+  return { status: "ok", report: parsed.data };
 }
