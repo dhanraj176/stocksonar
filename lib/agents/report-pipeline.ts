@@ -15,8 +15,11 @@ export type PipelineResult =
   | { status: "ok"; report: Report }
   | { status: "rejected"; errors: PipelineError[] };
 
-// Stub so the red tests compile; replaced in the green step.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function generateReport(_ticker: string, _deps: ReportPipelineDeps): Promise<PipelineResult> {
+export async function generateReport(ticker: string, deps: ReportPipelineDeps): Promise<PipelineResult> {
+  const sources = await deps.fetchSources(ticker);
+  if (sources.length === 0) {
+    return { status: "rejected", errors: [{ reason: "nothing-fetched" }] };
+  }
+
   throw new Error("not implemented");
 }
