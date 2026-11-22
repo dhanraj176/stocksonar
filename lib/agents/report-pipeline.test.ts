@@ -39,4 +39,37 @@ describe("generateReport", () => {
       expect(pipeline.writeReport).not.toHaveBeenCalled();
     });
   });
+
+  describe("when the agent returns malformed output", () => {
+    it.each([
+      ["null", null],
+      ["a string", "Here is your report: AAPL looks great."],
+      ["an array", [validClaim]],
+      ["a report missing bear", { bull: [validClaim] }],
+      ["a claim whose sourceIds is a string", { bull: [{ text: "Margins grew.", sourceIds: "src-10k" }], bear: [validClaim] }],
+      ["a claim with empty text", { bull: [{ text: "", sourceIds: ["src-10k"] }], bear: [validClaim] }],
+    ])("rejects %s as malformed-report", async (_label, output) => {
+      const pipeline = deps({ writeReport: vi.fn().mockResolvedValue(output) });
+
+      const result = await generateReport("AAPL", pipeline);
+
+      expect(result.status).toBe("rejected");
+      if (result.status !== "rejected") return;
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toMatchObject({ reason: "malformed-report" });
+      expect(result.errors[0]).toHaveProperty("issues", expect.arrayContaining([expect.any(String)]));
+    });
+
+    it("names the path of the bad field in issues", async () => {
+      const output = { bull: [{ text: "", sourceIds: ["src-10k"] }], bear: [validClaim] };
+      const pipeline = deps({ writeReport: vi.fn().mockResolvedValue(output) });
+
+      const result = await generateReport("AAPL", pipeline);
+
+      expect(result).toEqual({
+        status: "rejected",
+        errors: [{ reason: "malformed-report", issues: [expect.stringContaining("bull.0.text")] }],
+      });
+    });
+  });
 });
