@@ -1,12 +1,19 @@
 export type Claim = { text: string; sourceIds: string[] };
 export type Report = { bull: Claim[]; bear: Claim[] };
 export type FetchedSource = { id: string; url: string };
-export type CitationError = { reason: "no-sources" | "unknown-source" };
+export type CitationError = { reason: "no-sources" | "unknown-source" | "empty-section" };
 export type ValidationResult = { valid: boolean; errors: CitationError[] };
 
 export function validateReport(report: Report, fetchedSources: FetchedSource[]): ValidationResult {
   const fetchedIds = new Set(fetchedSources.map((source) => source.id));
   const errors: CitationError[] = [];
+
+  if (report.bull.length === 0) {
+    errors.push({ reason: "empty-section" });
+  }
+  if (report.bear.length === 0) {
+    errors.push({ reason: "empty-section" });
+  }
 
   for (const claim of [...report.bull, ...report.bear]) {
     if (claim.sourceIds.length === 0) {
