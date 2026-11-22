@@ -81,4 +81,54 @@ describe("validateReport", () => {
       expect(result.errors.map((e) => e.reason)).toEqual(["empty-section", "empty-section"]);
     });
   });
+
+  describe("AC3: each error names the section, the claim number and the reason", () => {
+    it("names the section and the 1-based claim number for each bad claim", () => {
+      const report = {
+        bull: [validClaim, { text: "Guidance was raised.", sourceIds: [] }],
+        bear: [
+          validClaim,
+          validClaim,
+          { text: "A lawsuit is pending.", sourceIds: ["src-10k", "src-made-up"] },
+        ],
+      };
+
+      const result = validateReport(report, sources);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toEqual([
+        { section: "bull", claim: 2, reason: "no-sources" },
+        { section: "bear", claim: 3, reason: "unknown-source", sourceId: "src-made-up" },
+      ]);
+    });
+
+    it("reports each unfetched id in a claim as its own error", () => {
+      const report = {
+        bull: [{ text: "Two fake citations.", sourceIds: ["fake-a", "fake-b"] }],
+        bear: [validClaim],
+      };
+
+      const result = validateReport(report, sources);
+
+      expect(result.errors).toEqual([
+        { section: "bull", claim: 1, reason: "unknown-source", sourceId: "fake-a" },
+        { section: "bull", claim: 1, reason: "unknown-source", sourceId: "fake-b" },
+      ]);
+    });
+
+    it("names the empty section with no claim number", () => {
+      const result = validateReport({ bull: [validClaim], bear: [] }, sources);
+
+      expect(result.errors).toEqual([{ section: "bear", claim: null, reason: "empty-section" }]);
+    });
+
+    it("returns valid with no errors for a fully valid report", () => {
+      const report = {
+        bull: [validClaim, { text: "The CEO bought shares.", sourceIds: ["src-form4"] }],
+        bear: [{ text: "Inventory is rising.", sourceIds: ["src-10k", "src-form4"] }],
+      };
+
+      expect(validateReport(report, sources)).toEqual({ valid: true, errors: [] });
+    });
+  });
 });
