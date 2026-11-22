@@ -1,7 +1,12 @@
 export type Claim = { text: string; sourceIds: string[] };
 export type Report = { bull: Claim[]; bear: Claim[] };
 export type FetchedSource = { id: string; url: string };
-export type CitationError = { reason: "no-sources" | "unknown-source" | "empty-section" };
+export type CitationError = {
+  section: "bull" | "bear";
+  claim: number | null;
+  reason: "no-sources" | "unknown-source" | "empty-section";
+  sourceId?: string;
+};
 export type ValidationResult = { valid: boolean; errors: CitationError[] };
 
 export function validateReport(report: Report, fetchedSources: FetchedSource[]): ValidationResult {
@@ -9,21 +14,23 @@ export function validateReport(report: Report, fetchedSources: FetchedSource[]):
   const errors: CitationError[] = [];
 
   if (report.bull.length === 0) {
-    errors.push({ reason: "empty-section" });
+    errors.push({ section: "bull", claim: null, reason: "empty-section" });
   }
   if (report.bear.length === 0) {
-    errors.push({ reason: "empty-section" });
+    errors.push({ section: "bear", claim: null, reason: "empty-section" });
   }
 
-  for (const claim of [...report.bull, ...report.bear]) {
-    if (claim.sourceIds.length === 0) {
-      errors.push({ reason: "no-sources" });
-    }
-    for (const id of claim.sourceIds) {
-      if (!fetchedIds.has(id)) {
-        errors.push({ reason: "unknown-source" });
+  for (const section of ["bull", "bear"] as const) {
+    report[section].forEach((claim, index) => {
+      if (claim.sourceIds.length === 0) {
+        errors.push({ section, claim: index + 1, reason: "no-sources" });
       }
-    }
+      for (const id of claim.sourceIds) {
+        if (!fetchedIds.has(id)) {
+          errors.push({ section, claim: index + 1, reason: "unknown-source", sourceId: id });
+        }
+      }
+    });
   }
 
   return { valid: errors.length === 0, errors };
