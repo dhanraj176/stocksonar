@@ -1,0 +1,870 @@
+▗ ▗   ▖ ▖  Claude Code v2.1.330
+           Opus 5.5 · Claude Enterprise
+ ▘▘   ▝▝   ~/projects/stocksonar
+
+
+❯ /clear
+
+❯ HW4 Part 2: Explore → Plan → Implement → Commit for issue #3. The feature is
+  a report pipeline that fetches sources, asks a report agent for a report,
+  runs validateReport, and rejects reports that fail.
+
+  EXPLORE only: use Glob, Grep and Read to understand the existing code (the
+  citation checker, its tests, the CLAUDE.md conventions, the project
+  structure). Don’t change any code. Write your findings to
+  docs/explore/report-pipeline.md, then commit only that file as:
+  docs(explore): map citation checker and structure for report pipeline (#3)
+
+⏺ I'll explore the codebase read-only first, then write the findings file.
+
+  Read 3 files, ran 4 shell commands (ctrl+o to expand)
+
+⏺ Exploration done (11/11 tests passing, nothing modified). Writing the findings
+  file.
+
+⏺ Write(docs/explore/report-pipeline.md)
+  ⎿  Wrote 106 lines to docs/explore/report-pipeline.md
+       1 # Explore: report pipeline (#3)
+       2
+       3 Read-only survey before planning the report pipeline: fetch sour
+         ces → ask a report agent for a report → run `validateReport` → r
+         eject reports that fail.
+       4
+       5 ## Project structure today
+       6
+       7 The repo is still mostly the `create-next-app` scaffold.
+       8
+     … +98 lines (ctrl+o to expand)
+
+⏺ CLAUDE.md requires npm run build to pass before any commit, so I'll run it
+  (plus lint) before committing.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+⏺ I mapped the citation checker and project structure, wrote the findings to
+  docs/explore/report-pipeline.md and committed only that file as 007987b
+  docs(explore): map citation checker and structure for report pipeline (#3). No
+  code changed. All 11 existing tests pass, and lint and the build passed
+  before the commit. Nothing was pushed.
+
+  What matters for the Plan step:
+
+  - The checker: validateReport(report, fetchedSources) in
+    lib/domain/citation-check.ts takes no network or database calls and returns
+    { valid, errors }. Each error names the section, the claim number (null when
+    a whole section is empty) and the reason. All its types are exported, so
+    the pipeline can reuse them.
+  - What the checker doesn't do (the pipeline has to):
+    - It doesn't check the report's shape when the program runs, so we need a
+      zod schema for the agent's output.
+    - It ignores FetchedSource.url, so turning each citation into a link to its
+      source isn't done yet.
+    - It allows claims with empty text and the same source id cited twice.
+    - It doesn't cover the devil's-advocate section or the disclaimer.
+  - Where the pipeline goes: following CLAUDE.md, it belongs in lib/agents/. The
+    source fetcher and the report agent should be passed in as arguments, so
+    the tests can use mocks instead of the network. The return type should force
+    callers to handle a rejected report.
+  - Missing dependencies: zod@4.6.7 is only in node_modules because ESLint pulls
+    it in; it isn't in package.json, so it needs to be added properly with a
+    reason. @anthropic-ai/sdk isn't installed. Both changes to package.json need
+    your approval under .claude/settings.json.
+  - Branch: feat/report-pipeline was branched from feat/citation-check, whose 8
+    commits aren't on main yet. A PR to main would include them unless
+    feat/citation-check merges first.
+
+  The file ends with six open questions for the plan. The ones that most change
+  the design:
+  - Should the first slice skip the devil's-advocate section and the disclaimer?
+  - When a report is rejected, should the pipeline retry the agent or just
+    return the errors?
+  - What should happen when fetching returns no sources?
+
+✻ Cooked for 1m 16s · done 1:52 PM
+
+※ recap: We're working through issue #3's report pipeline (fetch sources, get a report from the agent, validate it, reject failures), and the Explore step is finished and committed. Next is writing the plan in docs/plans/report-pipeline.md, starting with your answers to the open questions. (turn off recaps in /config)
+
+❯ Plan the report pipeline in lib/agents/report-pipeline.ts:
+  generateReport(ticker, deps), where deps has fetchSources(ticker) and
+  writeReport(ticker, sources), both injected so tests can mock them.
+  Decisions:
+
+  First slice is bull and bear claims only. The devil’s advocate and disclaimer
+  come later.
+  If fetchSources returns no sources, return rejected without calling
+  writeReport.
+  Parse writeReport’s output with a zod schema. Malformed output is rejected.
+  Then run validateReport. Return { status: “ok”, report } or { status:
+  “rejected”, errors }. A rejected report is never returned.
+  No retries yet. Add zod to package.json as a dependency and say why. No
+  Anthropic SDK yet.
+
+  Include the tests you’ll write. When I approve, save the plan to
+  docs/plans/report-pipeline.md, commit it as: docs(plan): report pipeline
+  design (#3), and stop.
+
+⏺ Updated plan
+  ⎿  /plan to preview
+
+⏺ Approved Claude's plan
+  ⎿  Plan saved to:
+     ~/.claude/plans/pasted-content-id-6475-plan-the-hashed-fern.md · /plan to
+     edit
+     Plan: report pipeline (#3)
+
+     Context
+
+     Issue #3 needs a cited bull/bear report that is rejected, and never shown,
+     when it fails the citation check. validateReport in
+     lib/domain/citation-check.ts already enforces the citation rules. This
+     slice adds the step that ties it together: fetch sources, ask a report
+     agent for a report, parse the agent's untrusted output, check citations,
+     and return either an accepted report or a rejection. The devil's-advocate
+     section, the disclaimer, retries, the real EDGAR/news clients and the
+     Anthropic SDK all come later. Findings behind this plan:
+     docs/explore/report-pipeline.md.
+
+     On approval, this turn only: save this plan to
+     docs/plans/report-pipeline.md, commit it as docs(plan): report pipeline
+     design (#3), and stop. The implementation below runs in a later step.
+
+     Files
+
+     - lib/agents/report-pipeline.ts (new): generateReport, its types, and a
+       private zod schema
+     - lib/agents/report-pipeline.test.ts (new)
+     - package.json / package-lock.json: add zod
+     - Reused without changes: validateReport, Report, FetchedSource and
+       CitationError from lib/domain/citation-check.ts
+
+     Dependency: zod
+
+     npm install zod@^4.6.7, added under dependencies (it runs at request time,
+     so it is not a dev dependency).
+     Why: CLAUDE.md requires zod for all external data at the boundary, and the
+     agent's output is external data. zod 4.6.7 is already in node_modules, but
+     only because eslint-config-next → eslint-plugin-react-hooks pulls it in.
+     Importing a package you only get through a dev-tool dependency would break
+     silently if that plugin drops or bumps it. Pinning the same major version
+     means nothing new is downloaded. (package.json edits and npm install
+     require approval under .claude/settings.json.)
+
+     API
+
+     export type ReportPipelineDeps = {
+       fetchSources: (ticker: string) => Promise<FetchedSource[]>;
+       writeReport: (ticker: string, sources: FetchedSource[]) =>
+     Promise<unknown>; // untrusted
+     };
+
+     export type PipelineError =
+       | { reason: "nothing-fetched" }
+       | { reason: "malformed-report"; issues: string[] } // "bull.0.text: <zod
+     message>"
+       | CitationError;                                   // reused unchanged
+
+     export type PipelineResult =
+       | { status: "ok"; report: Report }
+       | { status: "rejected"; errors: PipelineError[] };
+
+     export async function generateReport(ticker: string, deps:
+     ReportPipelineDeps): Promise<PipelineResult>
+     - writeReport returns unknown, so the compiler forces callers to parse it
+       before using it.
+     - All errors share a reason field, so callers switch on one field.
+       "nothing-fetched" is named so it can't be mistaken for the checker's
+       per-claim "no-sources".
+     - The rejected branch has no report field, so a rejected report can't be
+       returned by mistake.
+
+     Flow
+
+     1. sources = await deps.fetchSources(ticker). If it is empty, return {
+        status: "rejected", errors: [{ reason: "nothing-fetched" }] } and do not
+        call writeReport.
+     2. raw = await deps.writeReport(ticker, sources).
+     3. reportSchema.safeParse(raw). If it fails, return a rejection with
+        malformed-report and the issues as path: message strings
+        (issue.path.map(String).join(".")).
+     4. validateReport(parsed, sources). If it is invalid, return { status:
+        "rejected", errors: result.errors }.
+     5. Otherwise return { status: "ok", report: parsed } (the parsed value, not
+        raw).
+
+     Schema (private, typed z.ZodType<Report> so it can't drift from the domain
+     type):
+     { bull: Claim[], bear: Claim[] }, where Claim = { text: z.string().min(1),
+     sourceIds: z.array(z.string()) }.
+     - The schema checks only shape. Empty sections and empty sourceIds pass the
+       schema on purpose, so validateReport can report them with the section
+       and claim number.
+     - Non-empty text is the one rule I'm adding beyond shape: a blank claim
+       isn't a claim.
+     - zod's default object parsing strips unknown keys, so stray fields from
+       the agent never reach the result.
+
+     Thrown errors: if fetchSources or writeReport throws, the error propagates
+     to the caller and is not turned into a rejection. Network failures are
+     different from a bad report, and no retries happen yet.
+
+     Tests (lib/agents/report-pipeline.test.ts)
+
+     Fixtures follow citation-check.test.ts: the same two SEC sources, a
+     validClaim, and a deps(overrides) helper built on vi.fn() that resolves to
+     the sources and a valid report. No network. Assertions check structured
+     results only.
+
+     Cycle 1: nothing fetched
+     - returns rejected with [{ reason: "nothing-fetched" }] when fetchSources
+       resolves to []
+     - does not call writeReport when nothing was fetched
+
+     Cycle 2: malformed agent output (it.each, each case is rejected with one
+     malformed-report error and non-empty issues)
+     - null, a string, and an array
+     - bear missing
+     - a claim whose sourceIds is a string, not an array
+     - a claim with empty text
+     - also: issues names the bad path (contains "bull.0.text" for the
+       empty-text case)
+
+     Cycle 3: citation failure
+     - a report citing an unfetched id returns rejected with exactly
+       validateReport's errors ({ section: "bear", claim: 1, reason:
+       "unknown-source", sourceId: "src-made-up" })
+     - an empty bull section returns rejected with { section: "bull", claim:
+       null, reason: "empty-section" }
+     - a rejected result has no report property
+
+     Cycle 4: accepted report
+     - a valid report returns { status: "ok", report } equal to the agent's
+       report
+     - fetchSources is called with the ticker, and writeReport with the ticker
+       and the fetched sources
+     - unknown keys from the agent (for example recommendation: "BUY") are
+       stripped from the returned report
+
+     Errors from dependencies
+     - a rejection from fetchSources makes generateReport reject with the same
+       error
+     - a rejection from writeReport makes generateReport reject with the same
+       error
+
+     Execution order (later step)
+
+     1. chore(deps): add zod for boundary validation (#3)
+     2. For each cycle: test(red): … → feat(green): … → optional refactor: …,
+        all suffixed (#3)
+     3. After each step: npm run test and npm run lint. Before each commit: npx
+        tsc --noEmit and npm run build. Don't push.
+
+     Verification
+
+     - npx vitest run lib/agents/report-pipeline.test.ts: the new tests pass
+     - npm run test: the 11 citation-check tests still pass
+     - npm run lint, npx tsc --noEmit, npm run build: clean
+     - git log shows red/green pairs for each cycle, and package.json lists zod
+       under dependencies
+
+⏺ Bash(grep -v '^\*\*On approval, this turn only:\*\*' /Users/dhanrajpandya/.cla
+      ude/plans/pasted-content-id-6475-plan-the-hashed-fern.md | cat -s >
+      docs/plans/report-p…)
+  ⎿  # Plan: report pipeline (#3)
+
+     ## Context
+     … +20 lines (ctrl+o to expand)
+  ⎿  Created docs/plans/report-pipeline.md +90
+       1 +# Plan: report pipeline (#3)
+       2 +
+       3 +## Context
+       4 +Issue #3 needs a cited bull/bear report that is rejected, and n
+         +ever shown, when it fails the citation check. `validateReport`
+         +in `lib/domain/citation-check.ts` already enforces the citation
+         + rules. This slice adds the step that ties it together: fetch s
+         +ources, ask a report agent for a report, parse the agent's untr
+         +usted output, check citations, and return either an accepted re
+         +port or a rejection. The devil's-advocate section, the disclaim
+         +er, retries, the real EDGAR/news clients and the Anthropic SDK
+         +all come later. Findings behind this plan: `docs/explore/report
+         +-pipeline.md`.
+       5 +
+       6 +## Files
+       7 +- `lib/agents/report-pipeline.ts` (new): `generateReport`, its
+         +types, and a private zod schema
+       8 +- `lib/agents/report-pipeline.test.ts` (new)
+       9 +- `package.json` / `package-lock.json`: add `zod`
+      10 +- Reused without changes: `validateReport`, `Report`, `FetchedS
+         +ource` and `CitationError` from `lib/domain/citation-check.ts`
+      11 +
+      12 +## Dependency: zod
+      13 +`npm install zod@^4.6.7`, added under `dependencies` (it runs a
+         +t request time, so it is not a dev dependency).
+      14 +Why: CLAUDE.md requires zod for all external data at the bounda
+         +ry, and the agent's output is external data. zod 4.6.7 is alrea
+         +dy in `node_modules`, but only because `eslint-config-next` → `
+         +eslint-plugin-react-hooks` pulls it in. Importing a package you
+         + only get through a dev-tool dependency would break silently if
+         + that plugin drops or bumps it. Pinning the same major version
+         +means nothing new is downloaded. (`package.json` edits and `npm
+         + install` require approval under `.claude/settings.json`.)
+      15 +
+      16 +## API
+      17 +```ts
+      18 +export type ReportPipelineDeps = {
+      19 +  fetchSources: (ticker: string) => Promise<FetchedSource[]>;
+      20 +  writeReport: (ticker: string, sources: FetchedSource[]) => Pr
+         +omise<unknown>; // untrusted
+      21 +};
+      22 +
+      23 +export type PipelineError =
+      24 +  | { reason: "nothing-fetched" }
+      25 +  | { reason: "malformed-report"; issues: string[] } // "bull.0
+         +.text: <zod message>"
+      26 +  | CitationError;                                   // reused
+         +unchanged
+      27 +
+      28 +export type PipelineResult =
+      29 +  | { status: "ok"; report: Report }
+      30 +  | { status: "rejected"; errors: PipelineError[] };
+      31 +
+      32 +export async function generateReport(ticker: string, deps: Repo
+         +rtPipelineDeps): Promise<PipelineResult>
+      33 +```
+      34 +- `writeReport` returns `unknown`, so the compiler forces calle
+         +rs to parse it before using it.
+      35 +- All errors share a `reason` field, so callers switch on one f
+         +ield. `"nothing-fetched"` is named so it can't be mistaken for
+         +the checker's per-claim `"no-sources"`.
+      36 +- The `rejected` branch has no `report` field, so a rejected re
+         +port can't be returned by mistake.
+      37 +
+      38 +## Flow
+      39 +1. `sources = await deps.fetchSources(ticker)`. If it is empty,
+         + return `{ status: "rejected", errors: [{ reason: "nothing-fetc
+         +hed" }] }` and do **not** call `writeReport`.
+      40 +2. `raw = await deps.writeReport(ticker, sources)`.
+     … +50 lines (ctrl+o to expand)
+  ⎿  (timeout 5m)
+
+⏺ I saved the plan to docs/plans/report-pipeline.md and committed it as 3714cbe
+  docs(plan): report pipeline design (#3). Lint and the build passed first, as
+  CLAUDE.md requires before any commit. I left out the plan's note about
+  committing on approval, since it was only an instruction for this turn.
+  Nothing was pushed, and I've stopped here.
+
+  The plan adds three things you didn't spell out, so check them before
+  implementation:
+  - Blank claims are rejected by the schema: a claim with empty text counts as
+    malformed agent output. That's the only check in the schema beyond the
+    report's shape.
+  - Network errors aren't rejections: if fetchSources or writeReport throws, the
+    error goes straight up to the caller instead of being turned into a
+    rejected result.
+  - Extra fields are dropped: anything else the agent returns, such as a
+    recommendation: "BUY", is stripped before the report comes back.
+
+  Implementation starts with adding zod (chore(deps): add zod for boundary
+  validation (#3)), which needs your approval because it changes package.json.
+  After that come four red/green cycles: nothing fetched, malformed output,
+  citation failure, and an accepted report.
+
+✻ Cooked for 59s · done 2:11 PM
+
+❯ /compact focus on docs/plans/report-pipeline.md and the validateReport API
+  ⎿  Compacted (ctrl+o to see full summary)
+  ⎿  Read docs/explore/report-pipeline.md (106 lines)
+  ⎿  Read lib/domain/citation-check.ts (37 lines)
+  ⎿  Read lib/domain/citation-check.test.ts (134 lines)
+  ⎿  Read docs/plans/citation-check.md (20 lines)
+  ⎿  Plan file referenced
+     (~/.claude/plans/pasted-content-id-6475-plan-the-hashed-fern.md)
+
+❯ Implement docs/plans/report-pipeline.md, following its steps and commit
+  messages. Run npm run test and npm run lint before each commit. Don’t push.
+
+⏺ Skill(superpowers:test-driven-development)
+  ⎿  Loaded skill
+
+⏺ Starting with the dependency commit, as the plan specifies.
+
+⏺ Bash(npm install zod@^4.6.7 2>&1 | tail -5 && git diff --stat && grep -n
+      '"zod"' package.json)  ⎿  found 0 vulnerabilities
+     npm warn install-scripts 1 package has install scripts not yet covered
+      by allowScripts:
+     … +9 lines (ctrl+o to expand)
+  ⎿  Updated package-lock.json +2 -2
+      10        "dependencies": {
+      11          "next": "16.4.6",
+      12          "react": "19.3.0",
+      13 -        "react-dom": "19.3.0"
+      13 +        "react-dom": "19.3.0",
+      14 +        "zod": "^4.6.7"
+      15        },
+      16        "devDependencies": {
+      17          "@tailwindcss/turbopack": "4.3.3",
+     ...
+      7899        "version": "4.6.7",
+      7900        "resolved": "https://registry.npmjs.org/zod/-/zod-4.6.7
+            .tgz",
+      7901        "integrity": "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/
+            3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==",
+      7901 -      "dev": true,
+      7902        "license": "MIT",
+      7903        "funding": {
+      7904          "url": "https://github.com/sponsors/colinhacks"
+  ⎿  Updated package.json +2 -1
+      12    "dependencies": {
+      13      "next": "16.4.6",
+      14      "react": "19.3.0",
+      15 -    "react-dom": "19.3.0"
+      15 +    "react-dom": "19.3.0",
+      16 +    "zod": "^4.6.7"
+      17    },
+      18    "devDependencies": {
+      19      "@tailwindcss/turbopack": "4.3.3",
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ The diff is what the plan expects: zod moves from a dev-only transitive
+  package to a runtime dependency, at the same version and integrity hash.
+  Committing.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Before Cycle 1, I'm checking how the citation-check red commits handled the
+  module not existing yet, since tsc and build must pass before each commit.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ The first red commit is test-only, so the Cycle 1 one will also add a stub
+  generateReport that throws "not implemented" to keep tsc and the build green.
+  That way the tests fail on behavior rather than on a missing import. · summary
+
+⏺ Write(lib/agents/report-pipeline.test.ts)
+  ⎿  Wrote 42 lines to lib/agents/report-pipeline.test.ts
+      1 import { describe, expect, it, vi } from "vitest";
+      2 import { generateReport, type ReportPipelineDeps } from "./report
+        -pipeline";
+      3
+      4 const sources = [
+      5   { id: "src-10k", url: "https://www.sec.gov/Archives/edgar/data/
+        320193/10k.htm" },
+      6   { id: "src-form4", url: "https://www.sec.gov/Archives/edgar/dat
+        a/320193/form4.xml" },
+      7 ];
+     … +35 lines (ctrl+o to expand)
+
+⏺ Write(lib/agents/report-pipeline.ts)
+  ⎿  Wrote 20 lines to lib/agents/report-pipeline.ts
+       1 import type { CitationError, FetchedSource, Report } from "@/lib
+         /domain/citation-check";
+       2
+       3 export type ReportPipelineDeps = {
+       4   fetchSources: (ticker: string) => Promise<FetchedSource[]>;
+       5   /** Returns the agent's raw output. It is untrusted until pars
+         ed. */
+       6   writeReport: (ticker: string, sources: FetchedSource[]) => Pro
+         mise<unknown>;
+       7 };
+     … +13 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Both tests fail on the stub's not implemented, which is the right reason. Lint
+  warns about the stub's unused parameters, so I'll silence that on the stub
+  line; the green step replaces it.
+
+⏺ Update(lib/agents/report-pipeline.ts)
+  ⎿  Added 2 lines
+      15    | { status: "ok"; report: Report }
+      16    | { status: "rejected"; errors: PipelineError[] };
+      17
+      18 +// Stub so the red tests compile; replaced in the green step.
+      19 +// eslint-disable-next-line @typescript-eslint/no-unused-vars
+      20  export async function generateReport(_ticker: string, _deps: Re
+          portPipelineDeps): Promise<PipelineResult> {
+      21    throw new Error("not implemented");
+      22  }
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ The suite shows only the two new tests failing. Lint, tsc and the build are
+  clean. Committing the red step.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Green: the smallest code that passes. The non-empty path still throws until
+  later cycles drive it.
+
+⏺ Update(lib/agents/report-pipeline.ts)
+  ⎿  Added 6 lines, removed 3 lines
+      15    | { status: "ok"; report: Report }
+      16    | { status: "rejected"; errors: PipelineError[] };
+      17
+      18 -// Stub so the red tests compile; replaced in the green step.
+      19 -// eslint-disable-next-line @typescript-eslint/no-unused-vars
+      20 -export async function generateReport(_ticker: string, _deps: Re
+         -portPipelineDeps): Promise<PipelineResult> {
+      18 +export async function generateReport(ticker: string, deps: Repo
+         +rtPipelineDeps): Promise<PipelineResult> {
+      19 +  const sources = await deps.fetchSources(ticker);
+      20 +  if (sources.length === 0) {
+      21 +    return { status: "rejected", errors: [{ reason: "nothing-fe
+         +tched" }] };
+      22 +  }
+      23 +
+      24    throw new Error("not implemented");
+      25  }
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ The build printed no last line, so I'm confirming its exit code before
+  committing.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+⏺ Cycle 2 red: malformed agent output.
+
+⏺ Update(lib/agents/report-pipeline.test.ts)
+  ⎿  Added 33 lines
+      39        expect(pipeline.writeReport).not.toHaveBeenCalled();
+      40      });
+      41    });
+      42 +
+      43 +  describe("when the agent returns malformed output", () => {
+      44 +    it.each([
+      45 +      ["null", null],
+      46 +      ["a string", "Here is your report: AAPL looks great."],
+      47 +      ["an array", [validClaim]],
+      48 +      ["a report missing bear", { bull: [validClaim] }],
+      49 +      ["a claim whose sourceIds is a string", { bull: [{ text:
+         +"Margins grew.", sourceIds: "src-10k" }], bear: [validClaim] }]
+         +,
+      50 +      ["a claim with empty text", { bull: [{ text: "", sourceId
+         +s: ["src-10k"] }], bear: [validClaim] }],
+      51 +    ])("rejects %s as malformed-report", async (_label, output)
+         + => {
+      52 +      const pipeline = deps({ writeReport: vi.fn().mockResolved
+         +Value(output) });
+      53 +
+      54 +      const result = await generateReport("AAPL", pipeline);
+      55 +
+      56 +      expect(result.status).toBe("rejected");
+      57 +      if (result.status !== "rejected") return;
+      58 +      expect(result.errors).toHaveLength(1);
+      59 +      expect(result.errors[0]).toMatchObject({ reason: "malform
+         +ed-report" });
+      60 +      expect(result.errors[0]).toHaveProperty("issues", expect.
+         +arrayContaining([expect.any(String)]));
+      61 +    });
+      62 +
+      63 +    it("names the path of the bad field in issues", async () =>
+         + {
+      64 +      const output = { bull: [{ text: "", sourceIds: ["src-10k"
+         +] }], bear: [validClaim] };
+      65 +      const pipeline = deps({ writeReport: vi.fn().mockResolved
+         +Value(output) });
+      66 +
+      67 +      const result = await generateReport("AAPL", pipeline);
+      68 +
+      69 +      expect(result).toEqual({
+      70 +        status: "rejected",
+      71 +        errors: [{ reason: "malformed-report", issues: [expect.
+         +stringContaining("bull.0.text")] }],
+      72 +      });
+      73 +    });
+      74 +  });
+      75  });
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ All 7 new cases fail on not implemented, and the Cycle 1 tests still pass.
+  Lint, tsc and the build are clean.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Green: add the private schema and the parse step.
+
+⏺ Update(lib/agents/report-pipeline.ts)
+  ⎿  Added 1 line
+      1 +import { z } from "zod";
+      2  import type { CitationError, FetchedSource, Report } from "@/lib
+         /domain/citation-check";
+      3
+      4  export type ReportPipelineDeps = {
+
+⏺ Update(lib/agents/report-pipeline.ts)
+  ⎿  Added 21 lines
+      16    | { status: "ok"; report: Report }
+      17    | { status: "rejected"; errors: PipelineError[] };
+      18
+      19 +const claimSchema = z.object({
+      20 +  text: z.string().min(1),
+      21 +  sourceIds: z.array(z.string()),
+      22 +});
+      23 +
+      24 +/**
+      25 + * Checks shape only. Empty sections and empty sourceIds pass o
+         +n purpose,
+      26 + * so validateReport can report them with their section and cla
+         +im number.
+      27 + */
+      28 +const reportSchema: z.ZodType<Report> = z.object({
+      29 +  bull: z.array(claimSchema),
+      30 +  bear: z.array(claimSchema),
+      31 +});
+      32 +
+      33  export async function generateReport(ticker: string, deps: Repo
+          rtPipelineDeps): Promise<PipelineResult> {
+      34    const sources = await deps.fetchSources(ticker);
+      35    if (sources.length === 0) {
+      36      return { status: "rejected", errors: [{ reason: "nothing-fe
+          tched" }] };
+      37    }
+      38
+      39 +  const raw = await deps.writeReport(ticker, sources);
+      40 +  const parsed = reportSchema.safeParse(raw);
+      41 +  if (!parsed.success) {
+      42 +    const issues = parsed.error.issues.map((issue) => `${issue.
+         +path.map(String).join(".")}: ${issue.message}`);
+      43 +    return { status: "rejected", errors: [{ reason: "malformed-
+         +report", issues }] };
+      44 +  }
+      45 +
+      46    throw new Error("not implemented");
+      47  }
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+⏺ Cycle 3 red: citation failures.
+
+⏺ Update(lib/agents/report-pipeline.test.ts)
+  ⎿  Added 39 lines
+       72        });
+       73      });
+       74    });
+       75 +
+       76 +  describe("when the report fails the citation check", () => {
+       77 +    it("rejects with the checker's errors for an unfetched sou
+          +rce", async () => {
+       78 +      const output = {
+       79 +        bull: [validClaim],
+       80 +        bear: [{ text: "A lawsuit is pending.", sourceIds: ["s
+          +rc-made-up"] }],
+       81 +      };
+       82 +      const pipeline = deps({ writeReport: vi.fn().mockResolve
+          +dValue(output) });
+       83 +
+       84 +      const result = await generateReport("AAPL", pipeline);
+       85 +
+       86 +      expect(result).toEqual({
+       87 +        status: "rejected",
+       88 +        errors: [{ section: "bear", claim: 1, reason: "unknown
+          +-source", sourceId: "src-made-up" }],
+       89 +      });
+       90 +    });
+       91 +
+       92 +    it("rejects an empty bull section", async () => {
+       93 +      const output = { bull: [], bear: [validClaim] };
+       94 +      const pipeline = deps({ writeReport: vi.fn().mockResolve
+          +dValue(output) });
+       95 +
+       96 +      const result = await generateReport("AAPL", pipeline);
+       97 +
+       98 +      expect(result).toEqual({
+       99 +        status: "rejected",
+      100 +        errors: [{ section: "bull", claim: null, reason: "empt
+          +y-section" }],
+      101 +      });
+      102 +    });
+      103 +
+      104 +    it("never returns the rejected report", async () => {
+      105 +      const output = { bull: [{ text: "Margins grew.", sourceI
+          +ds: [] }], bear: [validClaim] };
+      106 +      const pipeline = deps({ writeReport: vi.fn().mockResolve
+          +dValue(output) });
+      107 +
+      108 +      const result = await generateReport("AAPL", pipeline);
+      109 +
+      110 +      expect(result.status).toBe("rejected");
+      111 +      expect(result).not.toHaveProperty("report");
+      112 +    });
+      113 +  });
+      114  });
+
+  Ran 2 shell commands (ctrl+o to expand)
+⏺ Bash(python3 - <<'EOF'
+      p = "lib/agents/report-pipeline.ts"…)
+  ⎿   lib/agents/report-pipeline.ts | 7 ++++++-
+      1 file changed, 6 insertions(+), 1 deletion(-)
+           Tests  23 passed (23)
+     … +3 lines (ctrl+o to expand)
+  ⎿  Updated lib/agents/report-pipeline.ts +6 -1
+      1  import { z } from "zod";
+      2 -import type { CitationError, FetchedSource, Report } from "@/lib
+        -/domain/citation-check";
+      2 +import { validateReport, type CitationError, type FetchedSource,
+        + type Report } from "@/lib/domain/citation-check";
+      3
+      4  export type ReportPipelineDeps = {
+      5    fetchSources: (ticker: string) => Promise<FetchedSource[]>;
+     ...
+      43      return { status: "rejected", errors: [{ reason: "malformed-
+          report", issues }] };
+      44    }
+      45
+      46 +  const check = validateReport(parsed.data, sources);
+      47 +  if (!check.valid) {
+      48 +    return { status: "rejected", errors: check.errors };
+      49 +  }
+      50 +
+      51    throw new Error("not implemented");
+      52  }
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Cycle 4 red: the accepted report.
+
+⏺ Update(lib/agents/report-pipeline.test.ts)
+  ⎿  Added 33 lines
+      111        expect(result).not.toHaveProperty("report");
+      112      });
+      113    });
+      114 +
+      115 +  describe("when the report passes every check", () => {
+      116 +    it("returns ok with the agent's report", async () => {
+      117 +      const result = await generateReport("AAPL", deps());
+      118 +
+      119 +      expect(result).toEqual({ status: "ok", report: validRepo
+          +rt });
+      120 +    });
+      121 +
+      122 +    it("fetches for the ticker and gives the agent the fetched
+          + sources", async () => {
+      123 +      const pipeline = deps();
+      124 +
+      125 +      await generateReport("AAPL", pipeline);
+      126 +
+      127 +      expect(pipeline.fetchSources).toHaveBeenCalledWith("AAPL
+          +");
+      128 +      expect(pipeline.writeReport).toHaveBeenCalledWith("AAPL"
+          +, sources);
+      129 +    });
+      130 +
+      131 +    it("strips fields the report type does not have", async ()
+          + => {
+      132 +      const output = {
+      133 +        ...validReport,
+      134 +        recommendation: "BUY",
+      135 +        bull: [{ ...validClaim, confidence: "high" }],
+      136 +      };
+      137 +      const pipeline = deps({ writeReport: vi.fn().mockResolve
+          +dValue(output) });
+      138 +
+      139 +      const result = await generateReport("AAPL", pipeline);
+      140 +
+      141 +      expect(result).toStrictEqual({
+      142 +        status: "ok",
+      143 +        report: { bull: [validClaim], bear: validReport.bear }
+          +,
+      144 +      });
+      145 +    });
+      146 +  });
+      147  });
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+⏺ Update(lib/agents/report-pipeline.ts)
+  ⎿  Added 1 line, removed 1 line
+      48      return { status: "rejected", errors: check.errors };
+      49    }
+      50
+      51 -  throw new Error("not implemented");
+      51 +  return { status: "ok", report: parsed.data };
+      52  }
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+⏺ The dependency-error tests already hold, since nothing catches those errors.
+  I'm writing them anyway and will break the code on purpose to confirm they can
+  fail. · summary
+
+⏺ Update(lib/agents/report-pipeline.test.ts)
+  ⎿  Added 16 lines
+      144        });
+      145      });
+      146    });
+      147 +
+      148 +  describe("when a dependency throws", () => {
+      149 +    it("passes a fetchSources failure through unchanged", asyn
+          +c () => {
+      150 +      const failure = new Error("EDGAR is down");
+      151 +      const pipeline = deps({ fetchSources: vi.fn().mockReject
+          +edValue(failure) });
+      152 +
+      153 +      await expect(generateReport("AAPL", pipeline)).rejects.t
+          +oBe(failure);
+      154 +    });
+      155 +
+      156 +    it("passes a writeReport failure through unchanged", async
+          + () => {
+      157 +      const failure = new Error("agent timed out");
+      158 +      const pipeline = deps({ writeReport: vi.fn().mockRejecte
+          +dValue(failure) });
+      159 +
+      160 +      await expect(generateReport("AAPL", pipeline)).rejects.t
+          +oBe(failure);
+      161 +    });
+      162 +  });
+      163  });
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ They pass as written, and they fail when the pipeline swallows dependency
+  errors. The pipeline file is restored to its committed state.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ The plan made a refactor optional. The module is about 55 lines with one
+  function and a linear flow, so I skipped it. Final check:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ The report pipeline is built as the plan describes, in 10 commits on
+  feat/report-pipeline. All 28 tests pass: 17 new ones and the 11 citation-check
+  tests. Lint, tsc --noEmit and the build passed before every commit. Nothing
+  was pushed, and the working tree is clean.
+
+  What it does now: generateReport(ticker, deps) in
+  lib/agents/report-pipeline.ts gets the sources and returns a rejection with
+  nothing-fetched if there are none, without calling the agent. Otherwise it
+  asks the agent for a report and checks its shape with zod (malformed-report,
+  with entries like bull.0.text: …). Then it runs validateReport, which rejects
+  with the citation checker's own errors. It only returns { status: "ok", report
+  } when every check passes. The returned report is the checked copy, so extra
+  fields from the agent such as recommendation: "BUY" are dropped.
+
+  zod: it's now a regular dependency in package.json. It was already installed,
+  but only because a lint tool pulled it in, so relying on it was fragile. It's
+  the same version, so nothing new was downloaded, and the commit message gives
+  the reason.
+
+  Two places where I departed from a strict red/green pattern:
+  - Stub in the first red commit: that commit also added the types and a
+    generateReport that just throws "not implemented". Without it, the test
+    would import a file that doesn't exist, and the build has to pass before
+    every commit. The tests still failed for the right reason, and the green
+    commit replaced the stub.
+  - Error-passing tests have no red commit: the two tests for errors from
+    fetchSources and writeReport passed as soon as I wrote them, because nothing
+    catches those errors. I committed them as test: rather than inventing a red
+    step. To check they can fail, I temporarily made the pipeline swallow those
+    errors: both tests failed, and I restored the file.
+
+  I skipped the optional refactor step because the module is about 55 lines with
+  one function and nothing to tidy.
+
+  This branch was cut from feat/citation-check, so a pull request to main will
+  also include those 8 commits unless that branch merges first.
+
+✻ Cogitated for 3m 3s · done 2:19 PM
