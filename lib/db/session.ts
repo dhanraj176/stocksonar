@@ -1,4 +1,4 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { authRedirect } from "@/lib/domain/auth-redirect";
 import { publicEnv } from "./env";
@@ -9,6 +9,10 @@ import { publicEnv } from "./env";
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   const { url, publishableKey } = publicEnv();
   let response = NextResponse.next({ request });
+  // Everything Supabase has written so far. setAll can run more than once, and
+  // the cache headers arrive only with the first write, so each rebuilt
+  // response gets all of it, not just the latest batch.
+  const cookiesSet = new Map<string, CookieToSet>();
   let cacheHeaders: Record<string, string> = {};
 
   const supabase = createServerClient(url, publishableKey, {
@@ -17,15 +21,14 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
         return request.cookies.getAll();
       },
       setAll(cookiesToSet, headers) {
+        cookiesToSet.forEach((cookie) => cookiesSet.set(cookie.name, cookie));
+        cacheHeaders = { ...cacheHeaders, ...headers };
+
         // Update the request so server components in this render see the new
         // session, then rebuild the response so the browser gets it too.
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
         response = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          response.cookies.set(name, value, options),
-        );
-        cacheHeaders = { ...cacheHeaders, ...headers };
-        Object.entries(headers).forEach(([key, value]) => response.headers.set(key, value));
+        applySession(response, cookiesSet, cacheHeaders);
       },
     },
   });
@@ -43,7 +46,17 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   if (!target) return response;
 
   const redirect = NextResponse.redirect(new URL(target, request.url));
-  response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
-  Object.entries(cacheHeaders).forEach(([key, value]) => redirect.headers.set(key, value));
+  applySession(redirect, cookiesSet, cacheHeaders);
   return redirect;
+}
+
+type CookieToSet = { name: string; value: string; options: CookieOptions };
+
+function applySession(
+  response: NextResponse,
+  cookiesSet: Map<string, CookieToSet>,
+  cacheHeaders: Record<string, string>,
+) {
+  cookiesSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+  Object.entries(cacheHeaders).forEach(([key, value]) => response.headers.set(key, value));
 }
