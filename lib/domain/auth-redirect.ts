@@ -4,14 +4,24 @@ export type AuthRedirectInput = {
   signedIn: boolean;
 };
 
-export function isPublicPath(_pathname: string): boolean {
-  throw new Error("not implemented");
+const PUBLIC_PATHS = new Set(["/", "/login", "/signup"]);
+const AUTH_PAGES = new Set(["/login", "/signup"]);
+const DEFAULT_NEXT = "/dashboard";
+
+export function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.has(pathname);
 }
 
-export function safeNextPath(_next: string | null): string {
-  throw new Error("not implemented");
+export function safeNextPath(next: string | null): string {
+  if (!next || !next.startsWith("/")) return DEFAULT_NEXT;
+  if (next.startsWith("//") || next.startsWith("/\\")) return DEFAULT_NEXT;
+  return next;
 }
 
-export function authRedirect(_input: AuthRedirectInput): string | null {
-  throw new Error("not implemented");
+export function authRedirect({ pathname, search, signedIn }: AuthRedirectInput): string | null {
+  if (signedIn) {
+    return AUTH_PAGES.has(pathname) ? DEFAULT_NEXT : null;
+  }
+  if (isPublicPath(pathname)) return null;
+  return `/login?next=${encodeURIComponent(pathname + search)}`;
 }
