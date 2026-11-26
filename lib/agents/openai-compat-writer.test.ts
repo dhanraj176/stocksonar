@@ -311,7 +311,17 @@ describe("createOpenAiCompatWriter", () => {
       expect(error).toMatchObject({ kind: "quota", status });
     });
 
-    it.each([400, 401, 403, 404, 500, 503])("throws an api error for HTTP %i", async (status) => {
+    it("throws an unavailable error for HTTP 503, so the app can fall back", async () => {
+      const error = await errorFor(503, {
+        error: { code: 503, message: "The model is overloaded. Please try again later.", status: "UNAVAILABLE" },
+      });
+
+      expect(error).toBeInstanceOf(ReportWriterError);
+      expect(error).toMatchObject({ kind: "unavailable", status: 503 });
+      expect((error as Error).message).toContain("The model is overloaded.");
+    });
+
+    it.each([400, 401, 403, 404, 500, 502, 504])("throws an api error for HTTP %i", async (status) => {
       const error = await errorFor(status);
 
       expect(error).toBeInstanceOf(ReportWriterError);
@@ -436,6 +446,12 @@ describe("createOpenAiCompatWriter", () => {
       const { log } = await logFor(() => jsonResponse({ error: { message: "Resource has been exhausted." } }, 429));
 
       expect(logged(log)).toMatchObject({ inputTokens: null, outputTokens: null, latencyMs: 250, outcome: "quota" });
+    });
+
+    it("logs unavailable, with no tokens, for HTTP 503", async () => {
+      const { log } = await logFor(() => jsonResponse({ error: { message: "High demand." } }, 503));
+
+      expect(logged(log)).toMatchObject({ inputTokens: null, outputTokens: null, outcome: "unavailable" });
     });
 
     it("logs error for a network failure and still rethrows it", async () => {
