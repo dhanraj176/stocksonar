@@ -24,7 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Vitest for unit tests, Playwright for e2e (later)
 - Vercel hosting, GitHub Actions CI
 
-Status: `lib/domain/`, `lib/data/` (EDGAR) and `lib/agents/` (the report pipeline and writers) exist; there is no UI yet. Installed beyond the scaffold: zod, the Anthropic SDK and fast-xml-parser. The Gemini writer uses plain `fetch` (no OpenAI SDK). Supabase and Playwright are planned but not yet in `package.json`.
+Status: `lib/domain/`, `lib/data/` (EDGAR), `lib/db/` (Supabase clients) and `lib/agents/` (the report pipeline and writers) exist, plus Supabase auth with login, signup and dashboard routes (#17). Installed beyond the scaffold: zod, `@supabase/ssr` and `@supabase/supabase-js`, `server-only`, the Anthropic SDK and fast-xml-parser. The Gemini writer uses plain `fetch` (no OpenAI SDK). Playwright is planned but not yet in `package.json`.
 
 ### Next.js config notes
 - APIs differ from older Next.js, so check `node_modules/next/dist/docs/01-app/` before writing framework code (see AGENTS.md above).
