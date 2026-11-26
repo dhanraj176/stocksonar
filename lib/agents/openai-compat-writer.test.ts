@@ -289,4 +289,82 @@ describe("createOpenAiCompatWriter", () => {
       expect(outcome.status === "ok" && outcome.report).toEqual(validReport);
     });
   });
+
+  describe("HTTP errors", () => {
+    async function errorFor(status: number, body: unknown = { error: { code: status, message: "Something went wrong.", status: "X" } }) {
+      const response = () => (typeof body === "string" ? new Response(body, { status }) : jsonResponse(body, status));
+      return writer(fakeFetch(response))("AAPL", [tenK]).catch((caught: unknown) => caught);
+    }
+
+    it.each([
+      [429, "rate or quota limit"],
+      [402, "prepaid credits used up"],
+    ])("throws a quota error for HTTP %i (%s)", async (status) => {
+      const error = await errorFor(status, { error: { code: status, message: "Resource has been exhausted.", status: "RESOURCE_EXHAUSTED" } });
+
+      expect(error).toBeInstanceOf(ReportWriterError);
+      expect(error).toMatchObject({ kind: "quota", status });
+    });
+
+    it.each([400, 401, 403, 404, 500, 503])("throws an api error for HTTP %i", async (status) => {
+      const error = await errorFor(status);
+
+      expect(error).toBeInstanceOf(ReportWriterError);
+      expect(error).toMatchObject({ kind: "api", status });
+    });
+
+    it.each([
+      ["an error object", { error: { message: "Invalid JSON payload received." } }],
+      ["an array of error objects", [{ error: { message: "Invalid JSON payload received." } }]],
+    ])("includes the provider's message from %s", async (_label, body) => {
+      const error = await errorFor(400, body);
+
+      expect((error as Error).message).toContain("Invalid JSON payload received.");
+      expect((error as Error).message).toContain("400");
+    });
+
+    it("still throws a clear error when the error body isn't JSON", async () => {
+      const error = await errorFor(502, "<html>Bad Gateway</html>");
+
+      expect(error).toBeInstanceOf(ReportWriterError);
+      expect(error).toMatchObject({ kind: "api", status: 502 });
+      expect((error as Error).message).not.toContain("<html>");
+    });
+
+    it("keeps at most 200 characters of the provider's message", async () => {
+      const error = await errorFor(400, { error: { message: "x".repeat(500) } });
+
+      expect((error as Error).message).toContain("x".repeat(200));
+      expect((error as Error).message).not.toContain("x".repeat(201));
+    });
+
+    it("strips control characters from the provider's message", async () => {
+      const error = await errorFor(400, { error: { message: "bad\u001b[31m request\r\nInjected: line" } });
+
+      expect((error as Error).message).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+      expect((error as Error).message).toContain("bad[31m request");
+    });
+
+    it("never includes the key, even when the provider echoes it", async () => {
+      const error = await errorFor(400, { error: { message: `API key ${API_KEY} not valid.` } });
+
+      expect((error as Error).message).not.toContain(API_KEY);
+      expect(JSON.stringify(error)).not.toContain(API_KEY);
+    });
+
+    it("lets network errors propagate unchanged", async () => {
+      const networkError = new TypeError("fetch failed");
+      const fetch = vi.fn<FetchLike>().mockRejectedValue(networkError);
+
+      await expect(writer(fetch)("AAPL", [tenK])).rejects.toBe(networkError);
+    });
+
+    it("makes one request and never retries", async () => {
+      const fetch = fakeFetch(() => jsonResponse({ error: { message: "Resource has been exhausted." } }, 429));
+
+      await writer(fetch)("AAPL", [tenK]).catch(() => undefined);
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+  });
 });
