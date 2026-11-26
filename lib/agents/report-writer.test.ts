@@ -1,7 +1,9 @@
 import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REPORT_MODEL } from "./claude";
+import { generateReport } from "./report-pipeline";
 import { createReportWriter, type ReportSource, type ReportWriterClient } from "./report-writer";
+import { ReportWriterError } from "./report-writer-error";
 
 vi.mock("server-only", () => ({}));
 
@@ -296,6 +298,72 @@ describe("createReportWriter", () => {
 
     it("tells the model a truncated source is partial", async () => {
       expect(await systemPrompt()).toMatch(/truncated="true" is partial/);
+    });
+  });
+
+  describe("the result", () => {
+    it("returns the model's JSON for the pipeline to check", async () => {
+      const { client } = fakeClient();
+
+      await expect(createReportWriter({ client })("AAPL", [tenK, form4])).resolves.toEqual(validReport);
+    });
+
+    it("throws a refusal error with the policy category", async () => {
+      const { client } = fakeClient(
+        apiMessage({
+          stop_reason: "refusal",
+          stop_details: { type: "refusal", category: "general_harms", explanation: null },
+          content: [],
+        }),
+      );
+
+      const error = await createReportWriter({ client })("AAPL", [tenK]).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ReportWriterError);
+      expect(error).toMatchObject({ kind: "refusal", category: "general_harms" });
+    });
+
+    it.each(["max_tokens", "model_context_window_exceeded"] as const)(
+      "throws a truncated error when the answer stopped at %s",
+      async (stopReason) => {
+        const { client } = fakeClient(
+          apiMessage({ stop_reason: stopReason, content: [{ type: "text", text: '{"bull": [', citations: null }] }),
+        );
+
+        const error = await createReportWriter({ client })("AAPL", [tenK]).catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ReportWriterError);
+        expect(error).toMatchObject({ kind: "truncated" });
+      },
+    );
+
+    it("lets API errors propagate unchanged", async () => {
+      const apiError = new Error("429 rate_limit_error");
+      const create = vi.fn<ReportWriterClient["messages"]["create"]>().mockRejectedValue(apiError);
+
+      await expect(createReportWriter({ client: { messages: { create } } })("AAPL", [tenK])).rejects.toBe(apiError);
+    });
+
+    it("hands text that isn't JSON to the pipeline, which rejects it as malformed", async () => {
+      const { client } = fakeClient(apiMessage({ content: [{ type: "text", text: "Sorry, here is prose.", citations: null }] }));
+
+      const result = await generateReport("AAPL", {
+        fetchSources: async () => [tenK],
+        writeReport: createReportWriter({ client }),
+      });
+
+      expect(result).toMatchObject({ status: "rejected", errors: [{ reason: "malformed-report" }] });
+    });
+
+    it("hands an answer with no text to the pipeline, which rejects it as malformed", async () => {
+      const { client } = fakeClient(apiMessage({ content: [] }));
+
+      const result = await generateReport("AAPL", {
+        fetchSources: async () => [tenK],
+        writeReport: createReportWriter({ client }),
+      });
+
+      expect(result).toMatchObject({ status: "rejected", errors: [{ reason: "malformed-report" }] });
     });
   });
 });
