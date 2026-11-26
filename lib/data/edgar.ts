@@ -211,7 +211,31 @@ function isSafeDocumentPath(document: string): boolean {
   return /^[\w./-]+$/.test(document) && !document.split("/").includes("..");
 }
 
-/** The process-wide client, built from SEC_USER_AGENT on first use (not at import, so builds need no env). */
+const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/** "AppName contact@email": at least one word that is an email and one that isn't. */
+const userAgentSchema = z
+  .string()
+  .trim()
+  .refine((value) => {
+    const words = value.split(/\s+/);
+    return words.some((word) => EMAIL.test(word)) && words.some((word) => !word.includes("@"));
+  });
+
+let shared: { userAgent: string; client: EdgarClient } | undefined;
+
+/**
+ * The process-wide client, built from SEC_USER_AGENT on first use (not at import, so builds need
+ * no env). One client means one rate limiter for every request this process makes.
+ */
 export function getEdgarClient(): EdgarClient {
-  throw new Error("getEdgarClient is not implemented");
+  const parsed = userAgentSchema.safeParse(process.env.SEC_USER_AGENT);
+  if (!parsed.success) {
+    // Never echo the value: it holds a contact email.
+    throw new EdgarError("config", 'SEC_USER_AGENT must be set to "AppName contact@email", e.g. "StockSonar you@example.com".');
+  }
+  if (shared?.userAgent !== parsed.data) {
+    shared = { userAgent: parsed.data, client: createEdgarClient({ userAgent: parsed.data }) };
+  }
+  return shared.client;
 }
