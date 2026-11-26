@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REPORT_MODEL } from "./claude";
@@ -363,6 +364,26 @@ describe("createReportWriter", () => {
       const create = vi.fn<ReportWriterClient["messages"]["create"]>().mockRejectedValue(apiError);
 
       await expect(createReportWriter({ client: { messages: { create } } })("AAPL", [tenK])).rejects.toBe(apiError);
+    });
+
+    it("throws a quota error for a rate limit (HTTP 429), so the app can fall back", async () => {
+      const rateLimit = new Anthropic.RateLimitError(
+        429,
+        { type: "error", error: { type: "rate_limit_error", message: "Number of request tokens has exceeded your rate limit." } },
+        "429 rate_limit_error",
+        new Headers(),
+      );
+      const create = vi.fn<ReportWriterClient["messages"]["create"]>().mockRejectedValue(rateLimit);
+      const log = vi.fn<UsageLogger>();
+
+      const error = await createReportWriter({ client: { messages: { create } }, log })("AAPL", [tenK]).catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toBeInstanceOf(ReportWriterError);
+      expect(error).toMatchObject({ kind: "quota", status: 429 });
+      expect((error as Error).cause).toBe(rateLimit);
+      expect(log.mock.calls[0][0]).toMatchObject({ outcome: "quota" });
     });
 
     it("hands text that isn't JSON to the pipeline, which rejects it as malformed", async () => {
