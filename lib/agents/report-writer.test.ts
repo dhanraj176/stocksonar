@@ -457,27 +457,27 @@ describe("createReportWriter", () => {
   });
 });
 
-describe("getReportWriter", () => {
+describe("getClaudeReportWriter", () => {
   /** A fresh copy of the modules, so the memoized client starts empty. */
   async function loadWriter() {
     vi.resetModules();
-    const { getReportWriter } = await import("./report-writer");
+    const { getClaudeReportWriter } = await import("./report-writer");
     const { ReportWriterError: FreshError } = await import("./report-writer-error");
-    return { getReportWriter, ReportWriterError: FreshError };
+    return { getClaudeReportWriter, ReportWriterError: FreshError };
   }
 
   it("needs no key until the writer is called", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", undefined);
-    const { getReportWriter } = await loadWriter();
+    const { getClaudeReportWriter } = await loadWriter();
 
-    expect(() => getReportWriter()).not.toThrow();
+    expect(() => getClaudeReportWriter()).not.toThrow();
   });
 
   it("rejects with a config error when the key is missing", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", undefined);
-    const { getReportWriter, ReportWriterError: FreshError } = await loadWriter();
+    const { getClaudeReportWriter, ReportWriterError: FreshError } = await loadWriter();
 
-    const error = await getReportWriter()("AAPL", [tenK]).catch((caught: unknown) => caught);
+    const error = await getClaudeReportWriter()("AAPL", [tenK]).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(FreshError);
     expect(error).toMatchObject({ kind: "config" });
@@ -489,9 +489,9 @@ describe("getReportWriter", () => {
       async () => new Response(JSON.stringify(apiMessage()), { status: 200, headers: { "content-type": "application/json" } }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const { getReportWriter } = await loadWriter();
+    const { getClaudeReportWriter } = await loadWriter();
 
-    const answer = await getReportWriter()("AAPL", [tenK, form4]);
+    const answer = await getClaudeReportWriter()("AAPL", [tenK, form4]);
 
     expect(answer).toEqual(validReport);
     expect(fetchMock).toHaveBeenCalledTimes(1);

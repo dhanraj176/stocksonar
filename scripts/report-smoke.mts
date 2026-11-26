@@ -13,7 +13,7 @@ const { getEdgarClient } = await import("../lib/data/edgar");
 const { EdgarError } = await import("../lib/data/edgar-error");
 const { generateReport } = await import("../lib/agents/report-pipeline");
 const { getAnthropicClient } = await import("../lib/agents/claude");
-const { getReportWriter } = await import("../lib/agents/report-writer");
+const { getClaudeReportWriter } = await import("../lib/agents/report-writer");
 const { ReportWriterError } = await import("../lib/agents/report-writer-error");
 
 type InsiderTrade = import("../lib/data/edgar").InsiderTrade;
@@ -60,7 +60,7 @@ const ticker = process.argv[2] ?? "AAPL";
 try {
   const edgar = getEdgarClient();
   getAnthropicClient(); // Fails fast on a missing key, before any SEC requests.
-  const writeReport = getReportWriter();
+  const writeReport = getClaudeReportWriter();
 
   const cik = await edgar.lookupCik(ticker);
   console.log(`\n${clean(ticker)} -> CIK ${cik ?? "not found"}`);
