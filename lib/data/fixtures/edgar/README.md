@@ -12,6 +12,16 @@ SEC_USER_AGENT="StockSonar your-email@example.com"
 
 `getEdgarClient()` throws an `EdgarError` of kind `config` on first use if it's missing or has no email. Builds and tests don't need it. Put it in your local env file, which is never committed. (`.env.example` gets the line once PR #17 merges.)
 
+## Live smoke test
+
+To check the client against the real SEC, outside the test suite:
+
+```
+SEC_USER_AGENT="StockSonar your-email@example.com" node scripts/edgar-smoke.mts [TICKER]
+```
+
+It prints the CIK, company profile, 3 recent 10-K/10-Q/8-K filings and the trades from the 3 latest Form 4s (about 6 requests). The ticker defaults to AAPL.
+
 ## Regenerating
 
 ```
