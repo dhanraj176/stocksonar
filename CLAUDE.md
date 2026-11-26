@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Tech stack
 - Next.js 16.4 (App Router only) + React 19.3 + TypeScript in strict mode
 - Supabase: Postgres, Auth, Row Level Security
-- LLM for the report agent: Gemini (`gemini-3.8-flash`) through its OpenAI-compatible endpoint by default, paid from Google's developer credits; Claude (Anthropic API) is optional. `REPORT_PROVIDER` (`gemini` | `claude`) switches it with env only. The devil's-advocate and alert agents are planned.
+- LLM for the report agent: Gemini (`gemini-3.5-flash-lite`, override with `GEMINI_MODEL`) through its OpenAI-compatible endpoint by default, paid from Google's developer credits; Claude (Anthropic API) is optional. `REPORT_PROVIDER` (`gemini` | `claude`) switches it with env only. The devil's-advocate and alert agents are planned.
 - Data: SEC EDGAR (filings, Form 4 insider trades) + one free market-data/news API, cached
 - Vitest for unit tests, Playwright for e2e (later)
 - Vercel hosting, GitHub Actions CI

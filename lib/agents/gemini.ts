@@ -1,8 +1,11 @@
 import "server-only";
 import { ReportWriterError } from "./report-writer-error";
 
-/** The one place the Gemini model is named. Override with GEMINI_MODEL. */
-export const GEMINI_DEFAULT_MODEL = "gemini-3.8-flash";
+/**
+ * The one place the Gemini model is named. Override with GEMINI_MODEL. Flash-Lite, because
+ * gemini-3.8-flash returned HTTP 503 (high demand) and timeouts on the free tier.
+ */
+export const GEMINI_DEFAULT_MODEL = "gemini-3.5-flash-lite";
 /** Gemini's OpenAI-compatible endpoint. Override with GEMINI_BASE_URL (https only). */
 export const GEMINI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/";
 

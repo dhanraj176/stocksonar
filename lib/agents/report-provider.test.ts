@@ -139,10 +139,10 @@ describe("getReportWriter", () => {
     const { getReportWriter } = await loadProvider();
     const write = getReportWriter();
 
-    vi.stubEnv("GEMINI_MODEL", "gemini-3.8-pro");
+    vi.stubEnv("GEMINI_MODEL", "gemini-3.8-flash");
     await write("AAPL", [tenK]);
 
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ model: "gemini-3.8-pro" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ model: "gemini-3.8-flash" });
   });
 });
 

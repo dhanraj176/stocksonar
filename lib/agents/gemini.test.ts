@@ -33,8 +33,8 @@ describe("getGeminiConfig", () => {
     await expect(import("./gemini")).resolves.toBeDefined();
   });
 
-  it("uses Google's OpenAI-compatible endpoint and gemini-3.8-flash by default", () => {
-    expect(GEMINI_DEFAULT_MODEL).toBe("gemini-3.8-flash");
+  it("uses Google's OpenAI-compatible endpoint and gemini-3.5-flash-lite by default", () => {
+    expect(GEMINI_DEFAULT_MODEL).toBe("gemini-3.5-flash-lite");
     expect(GEMINI_DEFAULT_BASE_URL).toBe("https://generativelanguage.googleapis.com/v1beta/openai/");
     expect(getGeminiConfig()).toEqual({ apiKey: KEY, model: GEMINI_DEFAULT_MODEL, baseUrl: GEMINI_DEFAULT_BASE_URL });
   });
@@ -60,9 +60,9 @@ describe("getGeminiConfig", () => {
   });
 
   it("reads the model from GEMINI_MODEL", () => {
-    vi.stubEnv("GEMINI_MODEL", " gemini-3.8-pro ");
+    vi.stubEnv("GEMINI_MODEL", " gemini-3.8-flash ");
 
-    expect(getGeminiConfig().model).toBe("gemini-3.8-pro");
+    expect(getGeminiConfig().model).toBe("gemini-3.8-flash");
   });
 
   it("uses the default model when GEMINI_MODEL is blank", () => {
