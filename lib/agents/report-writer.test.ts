@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REPORT_MODEL } from "./claude";
 import { generateReport } from "./report-pipeline";
 import { createReportWriter, type ReportSource, type ReportWriterClient } from "./report-writer";
+import type { ReportUsage, UsageLogger } from "./report-usage";
 import { ReportWriterError } from "./report-writer-error";
 
 vi.mock("server-only", () => ({}));
@@ -104,11 +105,14 @@ beforeEach(() => {
   vi.stubGlobal("fetch", () => {
     throw new Error("Unit tests must not use the network");
   });
+  // The default usage logger writes to console.info; keep test output clean.
+  vi.spyOn(console, "info").mockImplementation(() => {});
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("createReportWriter", () => {
@@ -381,6 +385,76 @@ describe("createReportWriter", () => {
       });
 
       expect(result).toMatchObject({ status: "rejected", errors: [{ reason: "malformed-report" }] });
+    });
+  });
+
+  describe("usage logging", () => {
+    /** A clock that reads 1000 ms at the start and 1250 ms at the end. */
+    function clock() {
+      return vi.fn<() => number>().mockReturnValueOnce(1000).mockReturnValueOnce(1250);
+    }
+
+    function logged(log: ReturnType<typeof vi.fn<UsageLogger>>): ReportUsage {
+      expect(log).toHaveBeenCalledTimes(1);
+      return log.mock.calls[0][0];
+    }
+
+    it("logs tokens, latency and ok for a report", async () => {
+      const message = apiMessage();
+      const { client } = fakeClient({
+        ...message,
+        usage: { ...message.usage, input_tokens: 2100, output_tokens: 900, output_tokens_details: { thinking_tokens: 400 } },
+      });
+      const log = vi.fn<UsageLogger>();
+
+      await createReportWriter({ client, model: "claude-test-model", now: clock(), log })("AAPL", [tenK]);
+
+      expect(logged(log)).toEqual({
+        event: "report-usage",
+        provider: "claude",
+        model: "claude-test-model",
+        inputTokens: 2100,
+        outputTokens: 900,
+        reasoningTokens: 400,
+        latencyMs: 250,
+        outcome: "ok",
+      });
+    });
+
+    it("logs the error kind, with tokens, for a refusal", async () => {
+      const { client } = fakeClient(
+        apiMessage({ stop_reason: "refusal", stop_details: { type: "refusal", category: "general_harms", explanation: null }, content: [] }),
+      );
+      const log = vi.fn<UsageLogger>();
+
+      await createReportWriter({ client, now: clock(), log })("AAPL", [tenK]).catch(() => undefined);
+
+      expect(logged(log)).toMatchObject({ inputTokens: 1, outputTokens: 1, reasoningTokens: null, outcome: "refusal" });
+    });
+
+    it("logs error, with no tokens, when the API call fails, and still rethrows it", async () => {
+      const apiError = new Error("500 api_error");
+      const create = vi.fn<ReportWriterClient["messages"]["create"]>().mockRejectedValue(apiError);
+      const log = vi.fn<UsageLogger>();
+
+      const outcome = await createReportWriter({ client: { messages: { create } }, now: clock(), log })("AAPL", [tenK]).catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(outcome).toBe(apiError);
+      expect(logged(log)).toMatchObject({ inputTokens: null, outputTokens: null, latencyMs: 250, outcome: "error" });
+    });
+
+    it("never logs the prompt or the sources", async () => {
+      const { client } = fakeClient();
+      const log = vi.fn<UsageLogger>();
+
+      await createReportWriter({ client, now: clock(), log })("AAPL", [tenK]);
+
+      const line = JSON.stringify(logged(log));
+      expect(line).not.toContain("Ticker:");
+      expect(line).not.toContain(tenK.content);
+      expect(line).not.toContain(tenK.id);
     });
   });
 

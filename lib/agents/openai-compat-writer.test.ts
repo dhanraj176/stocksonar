@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createOpenAiCompatWriter, type FetchLike } from "./openai-compat-writer";
+import type { ReportUsage, UsageLogger } from "./report-usage";
 import { generateReport } from "./report-pipeline";
 import { buildReportPrompt, type ReportSource } from "./report-prompt";
 import { ReportWriterError } from "./report-writer-error";
@@ -62,10 +63,13 @@ beforeEach(() => {
   vi.stubGlobal("fetch", () => {
     throw new Error("Unit tests must not use the network");
   });
+  // The default usage logger writes to console.info; keep test output clean.
+  vi.spyOn(console, "info").mockImplementation(() => {});
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("createOpenAiCompatWriter", () => {
@@ -365,6 +369,99 @@ describe("createOpenAiCompatWriter", () => {
       await writer(fetch)("AAPL", [tenK]).catch(() => undefined);
 
       expect(fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("usage logging", () => {
+    /** A clock that reads 1000 ms at the start and 1250 ms at the end. */
+    function clock() {
+      return vi.fn<() => number>().mockReturnValueOnce(1000).mockReturnValueOnce(1250);
+    }
+
+    async function logFor(response: () => Response, ticker = "AAPL") {
+      const log = vi.fn<UsageLogger>();
+      const write = createOpenAiCompatWriter({
+        baseUrl: BASE_URL,
+        apiKey: API_KEY,
+        model: MODEL,
+        provider: "gemini",
+        fetch: fakeFetch(response),
+        now: clock(),
+        log,
+      });
+      const outcome = await write(ticker, [tenK, form4]).catch((caught: unknown) => caught);
+      return { log, outcome };
+    }
+
+    function logged(log: ReturnType<typeof vi.fn<UsageLogger>>): ReportUsage {
+      expect(log).toHaveBeenCalledTimes(1);
+      return log.mock.calls[0][0];
+    }
+
+    it("logs tokens, latency and ok for a report", async () => {
+      const body = completion();
+      const withReasoning = { ...body, usage: { ...body.usage, completion_tokens_details: { reasoning_tokens: 120 } } };
+
+      const { log } = await logFor(() => jsonResponse(withReasoning));
+
+      expect(logged(log)).toEqual({
+        event: "report-usage",
+        provider: "gemini",
+        model: MODEL,
+        inputTokens: 2100,
+        outputTokens: 450,
+        reasoningTokens: 120,
+        latencyMs: 250,
+        outcome: "ok",
+      });
+    });
+
+    it("logs null tokens when the response has no usage", async () => {
+      const { usage, ...noUsage } = completion();
+      void usage;
+
+      const { log } = await logFor(() => jsonResponse(noUsage));
+
+      expect(logged(log)).toMatchObject({ inputTokens: null, outputTokens: null, reasoningTokens: null, outcome: "ok" });
+    });
+
+    it("logs the error kind, with tokens, when the answer was cut off", async () => {
+      const { log } = await logFor(() => jsonResponse(completion('{"bull": [', "length")));
+
+      expect(logged(log)).toMatchObject({ inputTokens: 2100, outputTokens: 450, outcome: "truncated" });
+    });
+
+    it("logs quota, with no tokens, for HTTP 429", async () => {
+      const { log } = await logFor(() => jsonResponse({ error: { message: "Resource has been exhausted." } }, 429));
+
+      expect(logged(log)).toMatchObject({ inputTokens: null, outputTokens: null, latencyMs: 250, outcome: "quota" });
+    });
+
+    it("logs error for a network failure and still rethrows it", async () => {
+      const networkError = new TypeError("fetch failed");
+
+      const { log, outcome } = await logFor(() => {
+        throw networkError;
+      });
+
+      expect(outcome).toBe(networkError);
+      expect(logged(log)).toMatchObject({ outcome: "error" });
+    });
+
+    it("logs nothing when nothing was sent", async () => {
+      const { log } = await logFor(() => jsonResponse(completion()), "<b>AAPL</b>");
+
+      expect(log).not.toHaveBeenCalled();
+    });
+
+    it("never logs the prompt, the sources or the key", async () => {
+      const { log } = await logFor(() => jsonResponse({ error: { message: `API key ${API_KEY} not valid.` } }, 400));
+
+      const line = JSON.stringify(logged(log));
+      expect(line).not.toContain(API_KEY);
+      expect(line).not.toContain("Ticker:");
+      expect(line).not.toContain(tenK.content);
+      expect(line).not.toContain(tenK.id);
     });
   });
 });

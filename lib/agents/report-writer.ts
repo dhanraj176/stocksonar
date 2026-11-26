@@ -3,6 +3,7 @@ import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk
 import { getAnthropicClient, REPORT_MODEL } from "./claude";
 import { reportSchema } from "./report-pipeline";
 import { buildReportPrompt, type ReportSource } from "./report-prompt";
+import type { UsageLogger } from "./report-usage";
 import { ReportWriterError } from "./report-writer-error";
 
 export type { ReportSource } from "./report-prompt";
@@ -19,7 +20,15 @@ const MAX_TOKENS = 16000;
 /** Only the JSON schema is sent. The pipeline's reportSchema checks the answer, in one place. */
 const REPORT_FORMAT = { type: "json_schema", schema: zodOutputFormat(reportSchema).schema } as const;
 
-export function createReportWriter(deps: { client: ReportWriterClient; model?: string }): ReportWriter {
+export type ReportWriterDeps = {
+  client: ReportWriterClient;
+  model?: string;
+  /** Milliseconds, for latency. */
+  now?: () => number;
+  log?: UsageLogger;
+};
+
+export function createReportWriter(deps: ReportWriterDeps): ReportWriter {
   const model = deps.model ?? REPORT_MODEL;
   return async (ticker, sources) => {
     const prompt = buildReportPrompt(ticker, sources);

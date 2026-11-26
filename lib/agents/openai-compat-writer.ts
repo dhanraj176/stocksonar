@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { reportSchema } from "./report-pipeline";
 import { buildReportPrompt } from "./report-prompt";
+import type { UsageLogger } from "./report-usage";
 import type { ReportWriter } from "./report-writer";
 import { ReportWriterError } from "./report-writer-error";
 
@@ -13,6 +14,11 @@ export type OpenAiCompatWriterDeps = {
   apiKey: string;
   model: string;
   fetch?: FetchLike;
+  /** The provider name for the usage log. */
+  provider?: string;
+  /** Milliseconds, for latency. */
+  now?: () => number;
+  log?: UsageLogger;
 };
 
 /** 10 claims of under 40 words need roughly 600-900 tokens; the rest is headroom for minimal reasoning. */
