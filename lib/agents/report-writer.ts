@@ -115,3 +115,8 @@ const XML_ENTITIES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "
 function escapeXml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => XML_ENTITIES[char]);
 }
+
+/** The writer the app uses: the shared client, built from ANTHROPIC_API_KEY on each call's first use. */
+export function getReportWriter(): ReportWriter {
+  throw new Error("not implemented");
+}
