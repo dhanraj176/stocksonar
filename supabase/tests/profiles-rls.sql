@@ -2,8 +2,9 @@
 --
 -- Run in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
 -- It runs in one transaction and ends with ROLLBACK, so it leaves nothing
--- behind. Any failed check raises an exception and stops the script. On
--- success the last result row reads "profiles RLS: all checks passed".
+-- behind. Any failed check raises an exception and stops the script with an
+-- error naming the check. If there is no error, every check passed, and the
+-- result shown is the final row "profiles RLS: all checks passed".
 
 begin;
 
@@ -131,9 +132,10 @@ begin
       where id = '00000000-0000-4000-8000-00000000000b') is not null then
     raise exception 'user B''s profile was changed';
   end if;
-  raise notice 'profiles RLS: all checks passed';
 end $$;
 
-select 'profiles RLS: all checks passed' as result;
-
 rollback;
+
+-- Only reached if every check above passed. The SQL Editor shows the result
+-- of the last statement, so this comes after the rollback.
+select 'profiles RLS: all checks passed' as result;
