@@ -49,6 +49,15 @@ const tickerMapSchema = z.record(
 /** What the client caches: normalized ticker -> 10-digit CIK. Re-validated on read. */
 const cikByTickerSchema = z.record(z.string(), z.string().regex(/^\d{10}$/));
 
+/** The parts of data.sec.gov/submissions/CIK##########.json the client uses. Unknown keys are stripped. */
+const submissionsSchema = z.object({
+  cik: z.string().regex(/^\d{10}$/),
+  name: z.string().min(1),
+  sic: z.string(),
+  sicDescription: z.string(),
+  tickers: z.array(z.string()),
+});
+
 export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
   const sec = createSecFetcher(deps);
   const cache = deps.cache ?? createMemoryCache({ now: deps.now });
@@ -76,7 +85,15 @@ export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
       return cikByTicker[normalizeTicker(ticker)] ?? null;
     },
     async getCompanyProfile(cik) {
-      throw new Error(`getCompanyProfile is not implemented (${cik})`);
+      const url = submissionsUrl(cik);
+      const submissions = parseResponse(submissionsSchema, await sec.getJson(url), url);
+      return {
+        cik: submissions.cik,
+        name: submissions.name,
+        sic: submissions.sic || null,
+        sicDescription: submissions.sicDescription || null,
+        tickers: submissions.tickers,
+      };
     },
   };
 }
@@ -88,6 +105,18 @@ function normalizeTicker(ticker: string): string {
 
 function padCik(cik: number | string): string {
   return String(cik).padStart(10, "0");
+}
+
+/** Accepts "320193" or "0000320193". Throws RangeError before anything is fetched. */
+function normalizeCik(cik: string): string {
+  if (!/^\d{1,10}$/.test(cik)) {
+    throw new RangeError(`Not a CIK: ${JSON.stringify(cik)}`);
+  }
+  return padCik(cik);
+}
+
+function submissionsUrl(cik: string): string {
+  return `https://data.sec.gov/submissions/CIK${normalizeCik(cik)}.json`;
 }
 
 function parseResponse<T>(schema: z.ZodType<T>, value: unknown, url: string): T {
