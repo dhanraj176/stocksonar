@@ -165,3 +165,11 @@ SEC_USER_AGENT="StockSonar you@example.com" ANTHROPIC_API_KEY=sk-ant-... node sc
   - The status is `ok`, or else a rejection with readable errors.
   - Every cited id belongs to a fetched filing.
   - No claim tells the reader to buy or sell.
+
+## Implementation notes (where the code differs from the plan above)
+- **`messages.create`, not `messages.parse`.** In SDK 1.8.0, when the answer fails the zod schema, `parse` throws a generic `AnthropicError` that drops the model's text. So the writer sends only the JSON schema (`zodOutputFormat(reportSchema).schema`) through `messages.create` and returns the parsed JSON, or the raw text if it isn't JSON. The pipeline's `reportSchema` stays the only validator, and a bad answer is reported as `malformed-report`. `ReportWriterClient` is `{ messages: { create(params: MessageCreateParamsNonStreaming): Promise<Message> } }`, and the fake client mocks `create`.
+- **Stop reasons:** `model_context_window_exceeded` is treated like `max_tokens` (kind `truncated`).
+- **Title cap:** a cut title also marks the source `truncated="true"`, so no cut is silent.
+- **API key header:** SDK 1.x sends the key as `Authorization: Bearer <key>`, not `x-api-key`. The `getReportWriter` test checks that header against a stubbed `fetch`.
+- **Cycle 5** (prompt injection, end to end) passed on arrival, because escaping and the pipeline's checks already existed. It is one `test:` commit, and each test was seen to fail with its defense removed.
+- **Smoke script:** it calls `getAnthropicClient()` first, so a missing key fails before any SEC request.
