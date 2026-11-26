@@ -6,6 +6,8 @@ import { createSecFetcher } from "./sec-fetch";
 
 const TICKERS_URL = "https://www.sec.gov/files/company_tickers.json";
 const TICKERS_TTL_MS = 24 * 60 * 60 * 1000;
+const SUBMISSIONS_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_FILINGS_LIMIT = 10;
 
 export type EdgarClientDeps = {
   /** "AppName contact@email", required by the SEC on every request. */
@@ -51,14 +53,35 @@ const tickerMapSchema = z.record(
 /** What the client caches: normalized ticker -> 10-digit CIK. Re-validated on read. */
 const cikByTickerSchema = z.record(z.string(), z.string().regex(/^\d{10}$/));
 
-/** The parts of data.sec.gov/submissions/CIK##########.json the client uses. Unknown keys are stripped. */
+/** filings.recent is columnar: row i of every array describes the same filing. */
+const recentFilingsSchema = z
+  .object({
+    accessionNumber: z.array(z.string().regex(/^\d{10}-\d{2}-\d{6}$/)),
+    form: z.array(z.string()),
+    filingDate: z.array(z.iso.date()),
+    reportDate: z.array(z.union([z.iso.date(), z.literal("")])),
+    acceptanceDateTime: z.array(z.iso.datetime({ offset: true })),
+    primaryDocument: z.array(z.string()),
+    primaryDocDescription: z.array(z.string()),
+  })
+  .refine((columns) => new Set(Object.values(columns).map((column) => column.length)).size <= 1, {
+    message: "filings.recent columns have different lengths",
+  });
+
+/**
+ * The parts of data.sec.gov/submissions/CIK##########.json the client uses. Unknown keys are
+ * stripped. There are no transforms, so the parsed value can be cached and re-validated on read.
+ */
 const submissionsSchema = z.object({
   cik: z.string().regex(/^\d{10}$/),
   name: z.string().min(1),
   sic: z.string(),
   sicDescription: z.string(),
   tickers: z.array(z.string()),
+  filings: z.object({ recent: recentFilingsSchema }),
 });
+
+type Submissions = z.infer<typeof submissionsSchema>;
 
 export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
   const sec = createSecFetcher(deps);
@@ -81,14 +104,20 @@ export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
     return cikByTicker;
   }
 
+  async function getSubmissions(cik: string): Promise<Submissions> {
+    const url = submissionsUrl(cik);
+    return cached(`edgar:submissions:${normalizeCik(cik)}`, SUBMISSIONS_TTL_MS, submissionsSchema, async () =>
+      parseResponse(submissionsSchema, await sec.getJson(url), url),
+    );
+  }
+
   return {
     async lookupCik(ticker) {
       const cikByTicker = await cached("edgar:tickers", TICKERS_TTL_MS, cikByTickerSchema, loadCikByTicker);
       return cikByTicker[normalizeTicker(ticker)] ?? null;
     },
     async getCompanyProfile(cik) {
-      const url = submissionsUrl(cik);
-      const submissions = parseResponse(submissionsSchema, await sec.getJson(url), url);
+      const submissions = await getSubmissions(cik);
       return {
         cik: submissions.cik,
         name: submissions.name,
@@ -97,8 +126,15 @@ export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
         tickers: submissions.tickers,
       };
     },
-    async getRecentFilings(cik, options) {
-      throw new Error(`getRecentFilings is not implemented (${cik}, ${options.forms.join()})`);
+    async getRecentFilings(cik, { forms, limit = DEFAULT_FILINGS_LIMIT }) {
+      const submissions = await getSubmissions(cik);
+      const recent = submissions.filings.recent;
+      const wanted = new Set(forms);
+      const filings: Filing[] = [];
+      for (let row = 0; row < recent.form.length && filings.length < limit; row++) {
+        if (wanted.has(recent.form[row])) filings.push(toFiling(submissions.cik, recent, row));
+      }
+      return filings;
     },
   };
 }
@@ -122,6 +158,27 @@ function normalizeCik(cik: string): string {
 
 function submissionsUrl(cik: string): string {
   return `https://data.sec.gov/submissions/CIK${normalizeCik(cik)}.json`;
+}
+
+function toFiling(cik: string, recent: Submissions["filings"]["recent"], row: number): Filing {
+  const accessionNumber = recent.accessionNumber[row];
+  const folder = `https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${accessionNumber.replaceAll("-", "")}`;
+  const document = recent.primaryDocument[row];
+  return {
+    id: `edgar:${accessionNumber}`,
+    url: isSafeDocumentPath(document) ? `${folder}/${document}` : `${folder}/${accessionNumber}-index.htm`,
+    accessionNumber,
+    form: recent.form[row],
+    filingDate: recent.filingDate[row],
+    reportDate: recent.reportDate[row] || null,
+    acceptedAt: new Date(recent.acceptanceDateTime[row]).toISOString(),
+    description: recent.primaryDocDescription[row] || null,
+  };
+}
+
+/** primaryDocument comes from SEC data, so it must be a plain relative path before it goes into a URL. */
+function isSafeDocumentPath(document: string): boolean {
+  return /^[\w./-]+$/.test(document) && !document.split("/").includes("..");
 }
 
 function parseResponse<T>(schema: z.ZodType<T>, value: unknown, url: string): T {
