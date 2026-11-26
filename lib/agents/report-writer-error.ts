@@ -1,6 +1,6 @@
 /**
  * quota: a rate limit, a used-up quota or used-up credits. unavailable: the provider is
- * temporarily overloaded (HTTP 503). For both, the app falls back to a cached report.
+ * temporarily overloaded (HTTP 503) or didn't answer in time. For both, the app falls back to a cached report.
  */
 export type ReportWriterErrorKind = "config" | "refusal" | "truncated" | "invalid-input" | "quota" | "unavailable" | "api";
 

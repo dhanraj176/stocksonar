@@ -48,7 +48,13 @@ export function createOpenAiCompatWriter(deps: OpenAiCompatWriterDeps): ReportWr
 
   return async (ticker, sources) => {
     const prompt = buildReportPrompt(ticker, sources);
-    return trackUsage(usage, async (setTokens) => {
+    return trackUsage(usage, (setTokens) =>
+      send(setTokens).catch((error: unknown) => {
+        throw asUnavailable(error);
+      }),
+    );
+
+    async function send(setTokens: (tokens: UsageTokens) => void): Promise<unknown> {
       const response = await fetch(url, {
         method: "POST",
         headers: { authorization: `Bearer ${deps.apiKey}`, "content-type": "application/json" },
@@ -68,10 +74,14 @@ export function createOpenAiCompatWriter(deps: OpenAiCompatWriterDeps): ReportWr
       });
       if (!response.ok) throw await httpError(response, deps.apiKey);
 
-      const body: unknown = await response.json().catch(() => undefined);
+      // A body that isn't JSON is an api error below, but a timeout while it arrives is not.
+      const body: unknown = await response.json().catch((error: unknown) => {
+        if (isTimeout(error)) throw error;
+        return undefined;
+      });
       setTokens(readTokens(body));
       return readAnswer(body, response.status);
-    });
+    }
   };
 }
 
@@ -134,6 +144,17 @@ function readAnswer(body: unknown, status: number): unknown {
   } catch {
     return text;
   }
+}
+
+/** AbortSignal.timeout rejects with a DOMException named TimeoutError, during fetch or the body read. */
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
+/** A timeout is temporary, like HTTP 503: the app falls back. Other errors pass through unchanged. */
+function asUnavailable(error: unknown): unknown {
+  if (!isTimeout(error)) return error;
+  return new ReportWriterError("unavailable", `The provider didn't answer within ${TIMEOUT_MS / 1000} s.`, { cause: error });
 }
 
 /** 429 is a rate or quota limit; 402 means prepaid credits are used up. */

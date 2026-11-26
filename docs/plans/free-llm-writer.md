@@ -265,5 +265,5 @@ Built as planned in TDD pairs, with these differences:
   - Status ok: 2,139 input and 400 output tokens, `reasoningTokens` null (Gemini didn't report it), 2.2 s.
   - The 2 bull and 2 bear claims each cite fetched filings.
 - **Still open:**
-  - The 60 s timeout surfaces as the fetch's `TimeoutError` (logged as outcome `error`), not as `unavailable`.
   - The bull claims are thin, because the filing sources carry only metadata (form, dates, description). Real filing excerpts come with #3.
+- **Timeouts (follow-up):** the 60 s timeout is now `unavailable` too, whether it fires during `fetch` or while the answer is still arriving. The original `TimeoutError` is kept as `cause`, and the outcome is logged as `unavailable`. Other aborts and network errors still propagate unchanged. Tests came first.
