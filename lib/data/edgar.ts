@@ -37,6 +37,7 @@ export type Filing = FetchedSource & {
 
 export type EdgarClient = {
   lookupCik(ticker: string): Promise<string | null>;
+  getCompanyProfile(cik: string): Promise<CompanyProfile>;
 };
 
 /** SEC shape: { "0": { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." }, ... } */
@@ -73,6 +74,9 @@ export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
     async lookupCik(ticker) {
       const cikByTicker = await cached("edgar:tickers", TICKERS_TTL_MS, cikByTickerSchema, loadCikByTicker);
       return cikByTicker[normalizeTicker(ticker)] ?? null;
+    },
+    async getCompanyProfile(cik) {
+      throw new Error(`getCompanyProfile is not implemented (${cik})`);
     },
   };
 }
