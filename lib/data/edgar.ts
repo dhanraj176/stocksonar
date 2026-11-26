@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { FetchedSource } from "@/lib/domain/citation-check";
-import { EdgarError } from "./edgar-error";
+import { parseSecResponse } from "./edgar-error";
 import { createMemoryCache, type Cache } from "./memory-cache";
 import { createSecFetcher } from "./sec-fetch";
 
@@ -96,7 +96,7 @@ export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
   }
 
   async function loadCikByTicker(): Promise<Record<string, string>> {
-    const map = parseResponse(tickerMapSchema, await sec.getJson(TICKERS_URL), TICKERS_URL);
+    const map = parseSecResponse(tickerMapSchema, await sec.getJson(TICKERS_URL), TICKERS_URL);
     const cikByTicker: Record<string, string> = {};
     for (const entry of Object.values(map)) {
       cikByTicker[normalizeTicker(entry.ticker)] = padCik(entry.cik_str);
@@ -107,7 +107,7 @@ export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
   async function getSubmissions(cik: string): Promise<Submissions> {
     const url = submissionsUrl(cik);
     return cached(`edgar:submissions:${normalizeCik(cik)}`, SUBMISSIONS_TTL_MS, submissionsSchema, async () =>
-      parseResponse(submissionsSchema, await sec.getJson(url), url),
+      parseSecResponse(submissionsSchema, await sec.getJson(url), url),
     );
   }
 
@@ -179,13 +179,4 @@ function toFiling(cik: string, recent: Submissions["filings"]["recent"], row: nu
 /** primaryDocument comes from SEC data, so it must be a plain relative path before it goes into a URL. */
 function isSafeDocumentPath(document: string): boolean {
   return /^[\w./-]+$/.test(document) && !document.split("/").includes("..");
-}
-
-function parseResponse<T>(schema: z.ZodType<T>, value: unknown, url: string): T {
-  const result = schema.safeParse(value);
-  if (!result.success) {
-    const issues = result.error.issues.map((issue) => `${issue.path.map(String).join(".")}: ${issue.message}`);
-    throw new EdgarError("invalid-response", `Unexpected SEC response shape: ${url}`, { url, issues });
-  }
-  return result.data;
 }

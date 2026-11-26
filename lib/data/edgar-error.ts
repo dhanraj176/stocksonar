@@ -1,3 +1,5 @@
+import type { z } from "zod";
+
 export type EdgarErrorKind = "http" | "invalid-response" | "config";
 
 export class EdgarError extends Error {
@@ -15,4 +17,14 @@ export class EdgarError extends Error {
     this.url = details.url;
     this.issues = details.issues;
   }
+}
+
+/** Validates SEC data with zod; a mismatch becomes an invalid-response EdgarError listing the issues. */
+export function parseSecResponse<T>(schema: z.ZodType<T>, value: unknown, url: string): T {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    const issues = result.error.issues.map((issue) => `${issue.path.map(String).join(".")}: ${issue.message}`);
+    throw new EdgarError("invalid-response", `Unexpected SEC response shape: ${url}`, { url, issues });
+  }
+  return result.data;
 }
