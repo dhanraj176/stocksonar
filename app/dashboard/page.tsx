@@ -1,0 +1,36 @@
+import type { Metadata } from "next";
+import { Suspense } from "react";
+import { logOut } from "@/app/(auth)/actions";
+import { requireUser } from "@/lib/db/current-user";
+import { getMyProfile } from "@/lib/db/profiles";
+
+export const metadata: Metadata = { title: "Dashboard · StockSonar" };
+
+export default function DashboardPage() {
+  return (
+    <main className="flex flex-1 flex-col gap-6 p-8">
+      <h1 className="text-2xl font-semibold">Dashboard</h1>
+      {/* Reads the session cookie, so it streams in behind Suspense. */}
+      <Suspense fallback={<p className="text-sm">Loading your account…</p>}>
+        <Account />
+      </Suspense>
+    </main>
+  );
+}
+
+async function Account() {
+  // Both are private-cached Supabase reads; see lib/db/current-user.ts.
+  const [user, profile] = await Promise.all([requireUser(), getMyProfile()]);
+  const name = profile?.displayName ?? user.email ?? "there";
+
+  return (
+    <section className="flex flex-col items-start gap-4">
+      <p>Signed in as {name}.</p>
+      <form action={logOut}>
+        <button type="submit" className="rounded-md border border-black/15 px-4 py-2 dark:border-white/20">
+          Log out
+        </button>
+      </form>
+    </section>
+  );
+}
