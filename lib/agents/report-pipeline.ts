@@ -24,11 +24,12 @@ const claimSchema = z.object({
 /**
  * Checks shape only. Empty sections and empty sourceIds pass on purpose,
  * so validateReport can report them with their section and claim number.
+ * Exported so the report writer asks the model for exactly this shape.
  */
-const reportSchema: z.ZodType<Report> = z.object({
+export const reportSchema = z.object({
   bull: z.array(claimSchema),
   bear: z.array(claimSchema),
-});
+}) satisfies z.ZodType<Report>;
 
 export async function generateReport(ticker: string, deps: ReportPipelineDeps): Promise<PipelineResult> {
   const sources = await deps.fetchSources(ticker);

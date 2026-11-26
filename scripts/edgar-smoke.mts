@@ -4,33 +4,9 @@
  *
  *   SEC_USER_AGENT="StockSonar you@example.com" node scripts/edgar-smoke.mts [TICKER]
  *
- * Uses Node's built-in TypeScript support, so no extra dependencies. The resolve hook below maps
- * the "@/" alias to the repo root and adds the ".ts" extension that the app's imports leave out.
+ * Uses Node's built-in TypeScript support, so no extra dependencies (see register-ts-hooks.mjs).
  */
-import { existsSync } from "node:fs";
-import { registerHooks } from "node:module";
-import { fileURLToPath } from "node:url";
-
-const ROOT = new URL("../", import.meta.url);
-
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    const target = specifier.startsWith("@/") ? new URL(specifier.slice(2), ROOT).href : specifier;
-    const isLocal = target.startsWith("file:") || target.startsWith(".");
-    if (isLocal && !/\.[cm]?[jt]s$/.test(target)) {
-      const withTs = new URL(`${target}.ts`, context.parentURL ?? ROOT);
-      if (existsSync(fileURLToPath(withTs))) return nextResolve(withTs.href, context);
-    }
-    return nextResolve(target, context);
-  },
-  // The app's .ts files are ES modules; saying so skips Node's "typeless package.json" reparse warning.
-  load(url, context, nextLoad) {
-    if (url.startsWith(ROOT.href) && url.endsWith(".ts")) {
-      return nextLoad(url, { ...context, format: "module-typescript" });
-    }
-    return nextLoad(url, context);
-  },
-});
+import "./register-ts-hooks.mjs";
 
 const { getEdgarClient } = await import("../lib/data/edgar");
 const { EdgarError } = await import("../lib/data/edgar-error");
