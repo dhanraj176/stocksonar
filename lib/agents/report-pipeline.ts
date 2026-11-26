@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { validateReport, type CitationError, type FetchedSource, type Report } from "@/lib/domain/citation-check";
+import { MAX_CLAIMS_PER_SIDE } from "./report-prompt";
 
 export type ReportPipelineDeps = {
   fetchSources: (ticker: string) => Promise<FetchedSource[]>;
@@ -22,13 +23,13 @@ const claimSchema = z.object({
 });
 
 /**
- * Checks shape only. Empty sections and empty sourceIds pass on purpose,
+ * Checks shape and the claim cap. Empty sections and empty sourceIds pass on purpose,
  * so validateReport can report them with their section and claim number.
  * Exported so the report writer asks the model for exactly this shape.
  */
 export const reportSchema = z.object({
-  bull: z.array(claimSchema),
-  bear: z.array(claimSchema),
+  bull: z.array(claimSchema).max(MAX_CLAIMS_PER_SIDE),
+  bear: z.array(claimSchema).max(MAX_CLAIMS_PER_SIDE),
 }) satisfies z.ZodType<Report>;
 
 export async function generateReport(ticker: string, deps: ReportPipelineDeps): Promise<PipelineResult> {

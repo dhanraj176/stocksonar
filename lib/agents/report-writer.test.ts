@@ -1,8 +1,10 @@
+import Anthropic from "@anthropic-ai/sdk";
 import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REPORT_MODEL } from "./claude";
 import { generateReport } from "./report-pipeline";
 import { createReportWriter, type ReportSource, type ReportWriterClient } from "./report-writer";
+import type { ReportUsage, UsageLogger } from "./report-usage";
 import { ReportWriterError } from "./report-writer-error";
 
 vi.mock("server-only", () => ({}));
@@ -104,11 +106,14 @@ beforeEach(() => {
   vi.stubGlobal("fetch", () => {
     throw new Error("Unit tests must not use the network");
   });
+  // The default usage logger writes to console.info; keep test output clean.
+  vi.spyOn(console, "info").mockImplementation(() => {});
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("createReportWriter", () => {
@@ -140,6 +145,22 @@ describe("createReportWriter", () => {
         type: "object",
         properties: { bull: { type: "array" }, bear: { type: "array" } },
         required: expect.arrayContaining(["bull", "bear"]),
+      });
+    });
+
+    // Claude's structured output doesn't support maxItems, so the SDK helper moves it into the
+    // description. The model still sees the cap; the pipeline's reportSchema enforces it.
+    it("tells Claude the 5-claim cap in the schema", async () => {
+      const { client, create } = fakeClient();
+
+      await createReportWriter({ client })("AAPL", [tenK]);
+
+      const schema = sentRequest(create).output_config?.format?.schema;
+      expect(schema).toMatchObject({
+        properties: {
+          bull: { description: expect.stringContaining("maxItems: 5") },
+          bear: { description: expect.stringContaining("maxItems: 5") },
+        },
       });
     });
 
@@ -345,6 +366,26 @@ describe("createReportWriter", () => {
       await expect(createReportWriter({ client: { messages: { create } } })("AAPL", [tenK])).rejects.toBe(apiError);
     });
 
+    it("throws a quota error for a rate limit (HTTP 429), so the app can fall back", async () => {
+      const rateLimit = new Anthropic.RateLimitError(
+        429,
+        { type: "error", error: { type: "rate_limit_error", message: "Number of request tokens has exceeded your rate limit." } },
+        "429 rate_limit_error",
+        new Headers(),
+      );
+      const create = vi.fn<ReportWriterClient["messages"]["create"]>().mockRejectedValue(rateLimit);
+      const log = vi.fn<UsageLogger>();
+
+      const error = await createReportWriter({ client: { messages: { create } }, log })("AAPL", [tenK]).catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toBeInstanceOf(ReportWriterError);
+      expect(error).toMatchObject({ kind: "quota", status: 429 });
+      expect((error as Error).cause).toBe(rateLimit);
+      expect(log.mock.calls[0][0]).toMatchObject({ outcome: "quota" });
+    });
+
     it("hands text that isn't JSON to the pipeline, which rejects it as malformed", async () => {
       const { client } = fakeClient(apiMessage({ content: [{ type: "text", text: "Sorry, here is prose.", citations: null }] }));
 
@@ -365,6 +406,76 @@ describe("createReportWriter", () => {
       });
 
       expect(result).toMatchObject({ status: "rejected", errors: [{ reason: "malformed-report" }] });
+    });
+  });
+
+  describe("usage logging", () => {
+    /** A clock that reads 1000 ms at the start and 1250 ms at the end. */
+    function clock() {
+      return vi.fn<() => number>().mockReturnValueOnce(1000).mockReturnValueOnce(1250);
+    }
+
+    function logged(log: ReturnType<typeof vi.fn<UsageLogger>>): ReportUsage {
+      expect(log).toHaveBeenCalledTimes(1);
+      return log.mock.calls[0][0];
+    }
+
+    it("logs tokens, latency and ok for a report", async () => {
+      const message = apiMessage();
+      const { client } = fakeClient({
+        ...message,
+        usage: { ...message.usage, input_tokens: 2100, output_tokens: 900, output_tokens_details: { thinking_tokens: 400 } },
+      });
+      const log = vi.fn<UsageLogger>();
+
+      await createReportWriter({ client, model: "claude-test-model", now: clock(), log })("AAPL", [tenK]);
+
+      expect(logged(log)).toEqual({
+        event: "report-usage",
+        provider: "claude",
+        model: "claude-test-model",
+        inputTokens: 2100,
+        outputTokens: 900,
+        reasoningTokens: 400,
+        latencyMs: 250,
+        outcome: "ok",
+      });
+    });
+
+    it("logs the error kind, with tokens, for a refusal", async () => {
+      const { client } = fakeClient(
+        apiMessage({ stop_reason: "refusal", stop_details: { type: "refusal", category: "general_harms", explanation: null }, content: [] }),
+      );
+      const log = vi.fn<UsageLogger>();
+
+      await createReportWriter({ client, now: clock(), log })("AAPL", [tenK]).catch(() => undefined);
+
+      expect(logged(log)).toMatchObject({ inputTokens: 1, outputTokens: 1, reasoningTokens: null, outcome: "refusal" });
+    });
+
+    it("logs error, with no tokens, when the API call fails, and still rethrows it", async () => {
+      const apiError = new Error("500 api_error");
+      const create = vi.fn<ReportWriterClient["messages"]["create"]>().mockRejectedValue(apiError);
+      const log = vi.fn<UsageLogger>();
+
+      const outcome = await createReportWriter({ client: { messages: { create } }, now: clock(), log })("AAPL", [tenK]).catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(outcome).toBe(apiError);
+      expect(logged(log)).toMatchObject({ inputTokens: null, outputTokens: null, latencyMs: 250, outcome: "error" });
+    });
+
+    it("never logs the prompt or the sources", async () => {
+      const { client } = fakeClient();
+      const log = vi.fn<UsageLogger>();
+
+      await createReportWriter({ client, now: clock(), log })("AAPL", [tenK]);
+
+      const line = JSON.stringify(logged(log));
+      expect(line).not.toContain("Ticker:");
+      expect(line).not.toContain(tenK.content);
+      expect(line).not.toContain(tenK.id);
     });
   });
 
@@ -457,27 +568,27 @@ describe("createReportWriter", () => {
   });
 });
 
-describe("getReportWriter", () => {
+describe("getClaudeReportWriter", () => {
   /** A fresh copy of the modules, so the memoized client starts empty. */
   async function loadWriter() {
     vi.resetModules();
-    const { getReportWriter } = await import("./report-writer");
+    const { getClaudeReportWriter } = await import("./report-writer");
     const { ReportWriterError: FreshError } = await import("./report-writer-error");
-    return { getReportWriter, ReportWriterError: FreshError };
+    return { getClaudeReportWriter, ReportWriterError: FreshError };
   }
 
   it("needs no key until the writer is called", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", undefined);
-    const { getReportWriter } = await loadWriter();
+    const { getClaudeReportWriter } = await loadWriter();
 
-    expect(() => getReportWriter()).not.toThrow();
+    expect(() => getClaudeReportWriter()).not.toThrow();
   });
 
   it("rejects with a config error when the key is missing", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", undefined);
-    const { getReportWriter, ReportWriterError: FreshError } = await loadWriter();
+    const { getClaudeReportWriter, ReportWriterError: FreshError } = await loadWriter();
 
-    const error = await getReportWriter()("AAPL", [tenK]).catch((caught: unknown) => caught);
+    const error = await getClaudeReportWriter()("AAPL", [tenK]).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(FreshError);
     expect(error).toMatchObject({ kind: "config" });
@@ -489,9 +600,9 @@ describe("getReportWriter", () => {
       async () => new Response(JSON.stringify(apiMessage()), { status: 200, headers: { "content-type": "application/json" } }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const { getReportWriter } = await loadWriter();
+    const { getClaudeReportWriter } = await loadWriter();
 
-    const answer = await getReportWriter()("AAPL", [tenK, form4]);
+    const answer = await getClaudeReportWriter()("AAPL", [tenK, form4]);
 
     expect(answer).toEqual(validReport);
     expect(fetchMock).toHaveBeenCalledTimes(1);
