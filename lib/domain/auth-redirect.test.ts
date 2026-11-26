@@ -27,6 +27,8 @@ describe("safeNextPath", () => {
     ["an absolute URL", "https://evil.com"],
     ["a javascript: URL", "javascript:alert(1)"],
     ["a relative path", "dashboard"],
+    ["a tab that browsers strip into //", "/\t/evil.com"],
+    ["a newline that browsers strip into //", "/\n/evil.com"],
   ])("falls back to /dashboard for %s", (_label, next) => {
     expect(safeNextPath(next)).toBe("/dashboard");
   });
