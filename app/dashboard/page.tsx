@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { logOut } from "@/app/(auth)/actions";
 import { requireUser } from "@/lib/db/current-user";
-import { createServerSupabase } from "@/lib/db/server";
+import { getMyProfile } from "@/lib/db/profiles";
 
 export const metadata: Metadata = { title: "Dashboard · StockSonar" };
 
@@ -19,16 +19,9 @@ export default function DashboardPage() {
 }
 
 async function Account() {
-  const user = await requireUser();
-  const supabase = await createServerSupabase();
-  // Goes through RLS as the signed-in user, so only their own row can come back.
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("display_name")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const name = profile?.display_name ?? user.email ?? "there";
+  // Both are private-cached Supabase reads; see lib/db/current-user.ts.
+  const [user, profile] = await Promise.all([requireUser(), getMyProfile()]);
+  const name = profile?.displayName ?? user.email ?? "there";
 
   return (
     <section className="flex flex-col items-start gap-4">
