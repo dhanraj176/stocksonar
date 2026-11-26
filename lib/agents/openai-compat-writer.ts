@@ -21,7 +21,7 @@ export type OpenAiCompatWriterDeps = {
   log?: UsageLogger;
 };
 
-/** 10 claims of under 40 words need roughly 600-900 tokens; the rest is headroom for minimal reasoning. */
+/** 10 claims of under 40 words need roughly 600-900 tokens; the rest is headroom for low-effort reasoning. */
 const MAX_TOKENS = 2048;
 const TIMEOUT_MS = 60_000;
 
@@ -60,8 +60,9 @@ export function createOpenAiCompatWriter(deps: OpenAiCompatWriterDeps): ReportWr
           ],
           response_format: { type: "json_schema", json_schema: { name: "report", strict: true, schema: REPORT_JSON_SCHEMA } },
           max_tokens: MAX_TOKENS,
-          // Gemini 3+ can't turn reasoning off; minimal keeps it cheap. temperature is ignored there, so it's not sent.
-          reasoning_effort: "minimal",
+          // Gemini 3+ can't turn reasoning off, and 3.8 Flash rejects "minimal" (HTTP 400), so low is the
+          // cheapest level. temperature is ignored there, so it's not sent.
+          reasoning_effort: "low",
         }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });

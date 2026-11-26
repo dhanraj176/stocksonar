@@ -133,14 +133,15 @@ describe("createOpenAiCompatWriter", () => {
       expect(schema).not.toHaveProperty("$schema");
     });
 
-    it("caps output tokens, keeps reasoning minimal and sends no temperature or stream", async () => {
+    // Gemini 3.8 Flash rejects "minimal" with HTTP 400 ("Thinking level MINIMAL is not supported"), found in the live smoke run.
+    it("caps output tokens, keeps reasoning low and sends no temperature or stream", async () => {
       const fetch = fakeFetch();
 
       await writer(fetch)("AAPL", [tenK]);
 
       const { body } = sentRequest(fetch);
       expect(body.max_tokens).toBe(2048);
-      expect(body.reasoning_effort).toBe("minimal");
+      expect(body.reasoning_effort).toBe("low");
       expect(body).not.toHaveProperty("temperature");
       expect(body).not.toHaveProperty("stream");
     });

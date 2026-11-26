@@ -243,3 +243,10 @@ Built as planned in TDD pairs, with these differences:
 - With no keys set, the smoke script stops with a `config` error before any SEC request, for `gemini`, `claude` and an unknown provider.
 - **Live Gemini run: pending.** `.env.local` has no `SEC_USER_AGENT`, so the run stopped at the EDGAR config check before any request. Once it's set, run `node --env-file=.env.local scripts/report-smoke.mts AAPL` and check the list under Verification, especially whether Gemini accepts `json_schema` strict and `reasoning_effort: "minimal"`.
 - **Live Claude run: skipped.** There's no Anthropic API key.
+
+**Live Gemini run, first attempt (2026-11-25):**
+- The API key works.
+- Gemini returned HTTP 400: "Thinking level MINIMAL is not supported for this model. Please retry with other thinking level." `reasoning_effort: "minimal"` isn't accepted by `gemini-3.8-flash`.
+- The writer now sends `reasoning_effort: "low"`. That keeps reasoning cheap; dropping the field would leave the model at its default thinking level. The test was changed first and seen failing.
+- `max_tokens` stays 2048. Re-run the smoke script and check the usage line's `reasoningTokens`; if low reasoning makes answers hit `truncated`, raise `max_tokens`.
+- Strict `json_schema` hasn't been confirmed yet, because the 400 came first.
