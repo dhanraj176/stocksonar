@@ -15,6 +15,8 @@ export function isPublicPath(pathname: string): boolean {
 export function safeNextPath(next: string | null): string {
   if (!next || !next.startsWith("/")) return DEFAULT_NEXT;
   if (next.startsWith("//") || next.startsWith("/\\")) return DEFAULT_NEXT;
+  // Browsers strip tabs and newlines, which could turn "/\t/evil.com" into "//evil.com".
+  if (/[\u0000-\u001f\u007f]/.test(next)) return DEFAULT_NEXT;
   return next;
 }
 
