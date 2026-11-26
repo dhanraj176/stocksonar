@@ -14,7 +14,7 @@ This slice:
 **Decisions made with Dhanraj:**
 - Claim caps: `reportSchema` gets `.max(5)` per side, which becomes `maxItems: 5` in the JSON schema for both providers, and the pipeline rejects a 6th claim as `malformed-report`. The under-40-words rule is in the prompt only.
 - Insider trades are summarized **per Form 4**. Each filing stays one citable source, and its content becomes one code-computed summary instead of a line per trade.
-- The default model is `gemini-3.8-flash`, overridable with `GEMINI_MODEL`.
+- The default model is `gemini-3.8-flash`, overridable with `GEMINI_MODEL`. *(Changed to `gemini-3.5-flash-lite` after the live runs; see Implementation notes.)*
 
 **Out of scope:**
 - `.env.example` (PR #17 owns it; the lines are added after it merges)
@@ -68,7 +68,7 @@ The writer uses plain `fetch`, injected the same way as `lib/data/sec-fetch.ts`,
 |---|---|---|
 | `REPORT_PROVIDER` | `gemini` when unset or blank | `gemini` or `claude`. Anything else throws `config`. |
 | `GEMINI_API_KEY` | — | Required when the provider is gemini. Missing → `config`. |
-| `GEMINI_MODEL` | `gemini-3.8-flash` | |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` (was `gemini-3.8-flash`; see Implementation notes) | |
 | `GEMINI_BASE_URL` | Google's OpenAI-compatible URL | Must be `https:`, or it throws `config` |
 | `ANTHROPIC_API_KEY` | — | Required only when the provider is claude, same as #15 |
 
@@ -250,3 +250,20 @@ Built as planned in TDD pairs, with these differences:
 - The writer now sends `reasoning_effort: "low"`. That keeps reasoning cheap; dropping the field would leave the model at its default thinking level. The test was changed first and seen failing.
 - `max_tokens` stays 2048. Re-run the smoke script and check the usage line's `reasoningTokens`; if low reasoning makes answers hit `truncated`, raise `max_tokens`.
 - Strict `json_schema` hasn't been confirmed yet, because the 400 came first.
+
+**Live Gemini runs, after the switch to `"low"` (2026-11-25, run by Dhanraj):**
+- **`gemini-3.5-flash-lite`: passed.**
+  - Status ok: 2,139 input and 371 output tokens, 1.9 s.
+  - Every citation is a fetched filing, and there's no buy or sell language.
+  - Strict `json_schema` and `reasoning_effort: "low"` were both accepted.
+- **`gemini-3.8-flash`: failed on the free tier.** It returned HTTP 503 (high demand) twice, and once timed out at 60 s.
+- **What changed:**
+  - `GEMINI_DEFAULT_MODEL` is now `gemini-3.5-flash-lite`, and `GEMINI_MODEL` still overrides it.
+  - HTTP 503 becomes a new `ReportWriterError("unavailable")` with the status, kept apart from `api`. Like `quota`, the app falls back to a cached report and doesn't retry.
+  - Tests were changed first and seen failing.
+- **Re-run on the committed default** (Claude Code, AAPL):
+  - Status ok: 2,139 input and 400 output tokens, `reasoningTokens` null (Gemini didn't report it), 2.2 s.
+  - The 2 bull and 2 bear claims each cite fetched filings.
+- **Still open:**
+  - The 60 s timeout surfaces as the fetch's `TimeoutError` (logged as outcome `error`), not as `unavailable`.
+  - The bull claims are thin, because the filing sources carry only metadata (form, dates, description). Real filing excerpts come with #3.
