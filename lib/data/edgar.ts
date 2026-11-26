@@ -38,6 +38,8 @@ export type Filing = FetchedSource & {
 export type EdgarClient = {
   lookupCik(ticker: string): Promise<string | null>;
   getCompanyProfile(cik: string): Promise<CompanyProfile>;
+  /** Newest first. `forms` match exactly ("8-K" does not include "8-K/A"). `limit` defaults to 10. */
+  getRecentFilings(cik: string, options: { forms: string[]; limit?: number }): Promise<Filing[]>;
 };
 
 /** SEC shape: { "0": { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." }, ... } */
@@ -94,6 +96,9 @@ export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
         sicDescription: submissions.sicDescription || null,
         tickers: submissions.tickers,
       };
+    },
+    async getRecentFilings(cik, options) {
+      throw new Error(`getRecentFilings is not implemented (${cik}, ${options.forms.join()})`);
     },
   };
 }
