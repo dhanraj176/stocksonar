@@ -12,12 +12,20 @@ export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.has(pathname);
 }
 
+// A same-site path starts with a single "/". "//host" and "/\host" are read
+// as other hosts, and browsers strip tabs and newlines, which could turn
+// "/\t/evil.com" into "//evil.com".
+function isSameSitePath(path: string): boolean {
+  return (
+    path.startsWith("/") &&
+    !path.startsWith("//") &&
+    !path.startsWith("/\\") &&
+    !/[\u0000-\u001f\u007f]/.test(path)
+  );
+}
+
 export function safeNextPath(next: string | null): string {
-  if (!next || !next.startsWith("/")) return DEFAULT_NEXT;
-  if (next.startsWith("//") || next.startsWith("/\\")) return DEFAULT_NEXT;
-  // Browsers strip tabs and newlines, which could turn "/\t/evil.com" into "//evil.com".
-  if (/[\u0000-\u001f\u007f]/.test(next)) return DEFAULT_NEXT;
-  return next;
+  return next && isSameSitePath(next) ? next : DEFAULT_NEXT;
 }
 
 export function authRedirect({ pathname, search, signedIn }: AuthRedirectInput): string | null {
