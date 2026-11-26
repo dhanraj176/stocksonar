@@ -37,11 +37,12 @@ Rules:
 export function createReportWriter(deps: { client: ReportWriterClient; model?: string }): ReportWriter {
   const model = deps.model ?? REPORT_MODEL;
   return async (ticker, sources) => {
+    const symbol = normalizeTicker(ticker);
     const message = await deps.client.messages.create({
       model,
       max_tokens: MAX_TOKENS,
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userMessage(ticker, sources) }],
+      messages: [{ role: "user", content: userMessage(symbol, sources) }],
       output_config: { format: REPORT_FORMAT },
     });
     return readAnswer(message);
@@ -68,6 +69,17 @@ function readAnswer(message: Message): unknown {
   } catch {
     return text;
   }
+}
+
+const TICKER = /^[A-Z0-9][A-Z0-9.-]{0,9}$/;
+
+/** The ticker is the one value outside <sources>, so it must be a plain symbol. Nothing is sent otherwise. */
+function normalizeTicker(ticker: string): string {
+  const symbol = ticker.trim().toUpperCase();
+  if (!TICKER.test(symbol)) {
+    throw new ReportWriterError("invalid-input", `Not a ticker: ${JSON.stringify(ticker.slice(0, 20))}`);
+  }
+  return symbol;
 }
 
 function userMessage(ticker: string, sources: ReportSource[]): string {
