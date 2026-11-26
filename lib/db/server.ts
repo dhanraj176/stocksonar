@@ -6,8 +6,10 @@ import { publicEnv } from "./env";
 // Supabase client for server components, server actions and route handlers.
 // It acts as the signed-in user, so Row Level Security applies.
 export async function createServerSupabase() {
-  const { url, publishableKey } = publicEnv();
+  // Read cookies first: during prerendering this is where Next stops, so the
+  // build doesn't need the Supabase env vars.
   const cookieStore = await cookies();
+  const { url, publishableKey } = publicEnv();
 
   return createServerClient(url, publishableKey, {
     cookies: {
