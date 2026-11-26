@@ -11,7 +11,7 @@ import {
   readJsonFixture,
 } from "./fixtures/edgar/fixtures";
 import { validateReport } from "@/lib/domain/citation-check";
-import { createEdgarClient } from "./edgar";
+import { createEdgarClient, getEdgarClient } from "./edgar";
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -31,6 +31,7 @@ function setup(routes: Parameters<typeof fakeFetch>[0]) {
 beforeEach(forbidGlobalFetch);
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("lookupCik", () => {
@@ -348,5 +349,45 @@ describe("getInsiderTrades", () => {
     const { client } = setup({ [AAPL_SUBMISSIONS_URL]: JSON.stringify(body) });
 
     await expect(client.getInsiderTrades("0000320193", { limit: 1 })).rejects.toMatchObject({ kind: "invalid-response" });
+  });
+});
+
+describe("getEdgarClient", () => {
+  it.each([
+    ["missing", undefined],
+    ["empty", "  "],
+    ["without an email", "StockSonar"],
+    ["without an app name", "test@example.com"],
+    ["with a malformed email", "StockSonar test@example"],
+  ])("throws a config EdgarError naming SEC_USER_AGENT when it is %s", (_, value) => {
+    vi.stubEnv("SEC_USER_AGENT", value);
+
+    expect(() => getEdgarClient()).toThrow(
+      expect.objectContaining({ name: "EdgarError", kind: "config", message: expect.stringContaining("SEC_USER_AGENT") }),
+    );
+  });
+
+  it("does not echo the configured value in the error", () => {
+    vi.stubEnv("SEC_USER_AGENT", "private-contact@example.com");
+
+    const error = (() => {
+      try {
+        getEdgarClient();
+      } catch (caught) {
+        return caught;
+      }
+    })();
+
+    expect(error).toMatchObject({ kind: "config" });
+    expect(String((error as Error).message)).not.toContain("private-contact");
+  });
+
+  it("returns one shared client for a valid User-Agent, without making any request", () => {
+    vi.stubEnv("SEC_USER_AGENT", "StockSonar test@example.com");
+
+    const client = getEdgarClient();
+
+    expect(client).toBe(getEdgarClient());
+    expect(client.lookupCik).toBeTypeOf("function");
   });
 });

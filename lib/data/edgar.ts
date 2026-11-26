@@ -210,3 +210,8 @@ function rawXmlUrl(filing: Filing): string {
 function isSafeDocumentPath(document: string): boolean {
   return /^[\w./-]+$/.test(document) && !document.split("/").includes("..");
 }
+
+/** The process-wide client, built from SEC_USER_AGENT on first use (not at import, so builds need no env). */
+export function getEdgarClient(): EdgarClient {
+  throw new Error("getEdgarClient is not implemented");
+}
