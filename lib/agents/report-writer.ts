@@ -3,6 +3,7 @@ import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk
 import type { FetchedSource } from "@/lib/domain/citation-check";
 import { REPORT_MODEL } from "./claude";
 import { reportSchema } from "./report-pipeline";
+import { ReportWriterError } from "./report-writer-error";
 
 /** A fetched source, with optional text for the model to read. */
 export type ReportSource = FetchedSource & { title?: string; content?: string };
@@ -43,9 +44,30 @@ export function createReportWriter(deps: { client: ReportWriterClient; model?: s
       messages: [{ role: "user", content: userMessage(ticker, sources) }],
       output_config: { format: REPORT_FORMAT },
     });
-    const text = message.content.find((block) => block.type === "text")?.text;
-    return text === undefined ? undefined : JSON.parse(text);
+    return readAnswer(message);
   };
+}
+
+/**
+ * Returns the answer as untrusted data for the pipeline to check. Text that isn't JSON is
+ * returned as is, so the pipeline rejects it as malformed-report with the rest.
+ */
+function readAnswer(message: Message): unknown {
+  if (message.stop_reason === "refusal") {
+    const category = message.stop_details?.category ?? null;
+    throw new ReportWriterError("refusal", `Claude declined to write the report (category: ${category ?? "none"}).`, { category });
+  }
+  if (message.stop_reason === "max_tokens" || message.stop_reason === "model_context_window_exceeded") {
+    throw new ReportWriterError("truncated", `The report was cut off (${message.stop_reason}).`);
+  }
+
+  const text = message.content.find((block) => block.type === "text")?.text;
+  if (text === undefined) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 function userMessage(ticker: string, sources: ReportSource[]): string {
