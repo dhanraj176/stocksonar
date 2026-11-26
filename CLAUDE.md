@@ -19,12 +19,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Tech stack
 - Next.js 16.4 (App Router only) + React 19.3 + TypeScript in strict mode
 - Supabase: Postgres, Auth, Row Level Security
-- Anthropic API (Claude) for the report, devil's-advocate and alert agents
+- LLM for the report agent: Gemini (`gemini-3.8-flash`) through its OpenAI-compatible endpoint by default, paid from Google's developer credits; Claude (Anthropic API) is optional. `REPORT_PROVIDER` (`gemini` | `claude`) switches it with env only. The devil's-advocate and alert agents are planned.
 - Data: SEC EDGAR (filings, Form 4 insider trades) + one free market-data/news API, cached
 - Vitest for unit tests, Playwright for e2e (later)
 - Vercel hosting, GitHub Actions CI
 
-Status: the repo is still the `create-next-app` scaffold. Only Next, React, Tailwind, ESLint and Vitest are installed. Supabase, the Anthropic SDK, zod and Playwright are planned but not yet in `package.json`, and the `lib/` directories below don't exist yet.
+Status: `lib/domain/`, `lib/data/` (EDGAR) and `lib/agents/` (the report pipeline and writers) exist; there is no UI yet. Installed beyond the scaffold: zod, the Anthropic SDK and fast-xml-parser. The Gemini writer uses plain `fetch` (no OpenAI SDK). Supabase and Playwright are planned but not yet in `package.json`.
 
 ### Next.js config notes
 - APIs differ from older Next.js, so check `node_modules/next/dist/docs/01-app/` before writing framework code (see AGENTS.md above).
@@ -38,7 +38,7 @@ Status: the repo is still the `create-next-app` scaffold. Only Next, React, Tail
 ## Architecture decisions
 - `lib/domain/`: pure business logic (portfolio math, CSV parsing, citation checks, alert rules). No network or database calls. Fully unit tested.
 - `lib/data/`: clients for external APIs (EDGAR, market data). Responses are cached in Supabase. Never call a data API from a React component.
-- `lib/agents/`: Claude prompts and agent orchestration. Agents may only cite sources fetched through `lib/data/`.
+- `lib/agents/`: LLM prompts and agent orchestration. `report-provider.ts` picks the report writer from env; `scripts/report-smoke.mts` runs one live report (`node --env-file=.env.local scripts/report-smoke.mts [TICKER]`). Agents may only cite sources fetched through `lib/data/`.
 - `app/`: routes and UI. Server components by default; mutations through server actions.
 - Every claim in a report must cite a fetched source. Reports that fail the citation check are rejected, never shown.
 - Row Level Security on every table: users see only their own portfolios; club data is visible only to that club's members.

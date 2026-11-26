@@ -227,3 +227,19 @@ Switching providers needs only env changes. `GEMINI_API_KEY` and `REPORT_PROVIDE
 1. Copy this plan to `docs/plans/free-llm-writer.md`.
 2. Commit it with `docs: add free LLM writer plan (#21)`, staging only that file.
 3. Stop. No implementation and no push.
+
+## Implementation notes (2026-11-25)
+Built as planned in TDD pairs, with these differences:
+
+- **Claude gets no real `maxItems`.** Claude's structured output doesn't support `maxItems`, so the SDK's `zodOutputFormat` moves it into the property description (`"{maxItems: 5}"`). The model still sees the cap, and the pipeline's `reportSchema` enforces it for both providers. Gemini gets real `maxItems: 5`. The red test that assumed `maxItems` for Claude was corrected in its own `test:` commit before green.
+- **`checkReportProvider()`** (in `report-provider.ts`, not in the plan) names the provider and model, or throws `config`, without sending anything. The smoke script uses it to fail fast and to print the provider.
+- **`trackUsage()`** in `report-usage.ts` wraps one model call in either writer and logs once, on success or failure. Nothing is logged when no request was sent (a bad ticker, missing config).
+- **`ReportWriterError`** gained `quota` and `api` kinds, an optional `status`, and an optional `cause` (the SDK's `RateLimitError` for Claude).
+- **Prompt budget:** the realistic fixture measures 9,296 characters, 835 of them the system prompt. `PROMPT_BUDGET_CHARS` is 12,000 and `SYSTEM_PROMPT_BUDGET_CHARS` is 1,100.
+- **The provider's error message** has the key redacted, as well as being capped and stripped of control characters.
+
+**Verification:**
+- 280 tests pass, including with outbound network denied (`sandbox-exec … (deny network-outbound (remote ip))`). lint, tsc and build are clean with no keys set.
+- With no keys set, the smoke script stops with a `config` error before any SEC request, for `gemini`, `claude` and an unknown provider.
+- **Live Gemini run: pending.** `.env.local` has no `SEC_USER_AGENT`, so the run stopped at the EDGAR config check before any request. Once it's set, run `node --env-file=.env.local scripts/report-smoke.mts AAPL` and check the list under Verification, especially whether Gemini accepts `json_schema` strict and `reasoning_effort: "minimal"`.
+- **Live Claude run: skipped.** There's no Anthropic API key.
