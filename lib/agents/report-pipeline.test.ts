@@ -48,6 +48,8 @@ describe("generateReport", () => {
       ["a report missing bear", { bull: [validClaim] }],
       ["a claim whose sourceIds is a string", { bull: [{ text: "Margins grew.", sourceIds: "src-10k" }], bear: [validClaim] }],
       ["a claim with empty text", { bull: [{ text: "", sourceIds: ["src-10k"] }], bear: [validClaim] }],
+      ["six bull claims", { bull: Array(6).fill(validClaim), bear: [validClaim] }],
+      ["six bear claims", { bull: [validClaim], bear: Array(6).fill(validClaim) }],
     ])("rejects %s as malformed-report", async (_label, output) => {
       const pipeline = deps({ writeReport: vi.fn().mockResolvedValue(output) });
 
@@ -113,6 +115,14 @@ describe("generateReport", () => {
   });
 
   describe("when the report passes every check", () => {
+    it("accepts five claims per side", async () => {
+      const five = { bull: Array(5).fill(validClaim), bear: Array(5).fill(validClaim) };
+
+      const result = await generateReport("AAPL", deps({ writeReport: vi.fn().mockResolvedValue(five) }));
+
+      expect(result).toEqual({ status: "ok", report: five });
+    });
+
     it("returns ok with the agent's report", async () => {
       const result = await generateReport("AAPL", deps());
 

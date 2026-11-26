@@ -143,6 +143,16 @@ describe("createReportWriter", () => {
       });
     });
 
+    it("caps each side at 5 claims in the schema", async () => {
+      const { client, create } = fakeClient();
+
+      await createReportWriter({ client })("AAPL", [tenK]);
+
+      expect(sentRequest(create).output_config?.format?.schema).toMatchObject({
+        properties: { bull: { maxItems: 5 }, bear: { maxItems: 5 } },
+      });
+    });
+
     it("leaves room for the answer and sends no temperature", async () => {
       const { client, create } = fakeClient();
 
