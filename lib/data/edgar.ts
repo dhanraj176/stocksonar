@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { FetchedSource } from "@/lib/domain/citation-check";
-import { parseSecResponse } from "./edgar-error";
+import { EdgarError, parseSecResponse } from "./edgar-error";
 import { createMemoryCache, type Cache } from "./memory-cache";
-import type { InsiderTrade } from "./form4";
+import { parseForm4, type InsiderTrade } from "./form4";
 import { createSecFetcher } from "./sec-fetch";
 
 export type { InsiderOwner, InsiderTrade } from "./form4";
@@ -109,6 +109,17 @@ export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
     return cikByTicker;
   }
 
+  async function getRecentFilings(cik: string, forms: string[], limit = DEFAULT_FILINGS_LIMIT): Promise<Filing[]> {
+    const submissions = await getSubmissions(cik);
+    const recent = submissions.filings.recent;
+    const wanted = new Set(forms);
+    const filings: Filing[] = [];
+    for (let row = 0; row < recent.form.length && filings.length < limit; row++) {
+      if (wanted.has(recent.form[row])) filings.push(toFiling(submissions.cik, recent, row));
+    }
+    return filings;
+  }
+
   async function getSubmissions(cik: string): Promise<Submissions> {
     const url = submissionsUrl(cik);
     return cached(`edgar:submissions:${normalizeCik(cik)}`, SUBMISSIONS_TTL_MS, submissionsSchema, async () =>
@@ -131,18 +142,17 @@ export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
         tickers: submissions.tickers,
       };
     },
-    async getRecentFilings(cik, { forms, limit = DEFAULT_FILINGS_LIMIT }) {
-      const submissions = await getSubmissions(cik);
-      const recent = submissions.filings.recent;
-      const wanted = new Set(forms);
-      const filings: Filing[] = [];
-      for (let row = 0; row < recent.form.length && filings.length < limit; row++) {
-        if (wanted.has(recent.form[row])) filings.push(toFiling(submissions.cik, recent, row));
-      }
-      return filings;
+    async getRecentFilings(cik, { forms, limit }) {
+      return getRecentFilings(cik, forms, limit);
     },
-    async getInsiderTrades(cik, options = {}) {
-      throw new Error(`getInsiderTrades is not implemented (${cik}, ${options.limit})`);
+    async getInsiderTrades(cik, { limit } = {}) {
+      const issuerCik = normalizeCik(cik);
+      const filings = await getRecentFilings(issuerCik, ["4"], limit);
+      // The shared limiter spaces these requests; Promise.all keeps the filings' order.
+      const tradesPerFiling = await Promise.all(
+        filings.map(async (source) => parseForm4(await sec.getText(rawXmlUrl(source)), { source, issuerCik })),
+      );
+      return tradesPerFiling.flat();
     },
   };
 }
@@ -182,6 +192,18 @@ function toFiling(cik: string, recent: Submissions["filings"]["recent"], row: nu
     acceptedAt: new Date(recent.acceptanceDateTime[row]).toISOString(),
     description: recent.primaryDocDescription[row] || null,
   };
+}
+
+/**
+ * A Form 4's primary document is the XSL-rendered page (".../xslF345X06/form4.xml"), which is the
+ * link people should see. The raw XML sits at the same path without the "xsl…/" folder.
+ */
+function rawXmlUrl(filing: Filing): string {
+  const raw = filing.url.replace(/\/xsl[^/]+\/([^/]+\.xml)$/, "/$1");
+  if (!raw.endsWith(".xml")) {
+    throw new EdgarError("invalid-response", `Form 4 has no XML document: ${filing.url}`, { url: filing.url });
+  }
+  return raw;
 }
 
 /** primaryDocument comes from SEC data, so it must be a plain relative path before it goes into a URL. */
