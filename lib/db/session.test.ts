@@ -112,6 +112,30 @@ describe("updateSession", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
+  it("keeps every cookie batch and the cache headers when setAll runs twice", async () => {
+    // @supabase/ssr sends the cache headers only with its first write.
+    fake.createServerClient.mockImplementationOnce(
+      (_url: string, _key: string, options: { cookies: CookieMethods }) => ({
+        auth: {
+          getClaims: async () => {
+            options.cookies.setAll(
+              [{ name: "sb-abc-auth-token.0", value: "first", options: {} }],
+              { "Cache-Control": "private, no-store" },
+            );
+            options.cookies.setAll([{ name: "sb-abc-auth-token.1", value: "second", options: {} }], {});
+            return { data: { claims: { sub: "user-a" } }, error: null };
+          },
+        },
+      }),
+    );
+
+    const response = await updateSession(request("/dashboard"));
+
+    expect(response.cookies.get("sb-abc-auth-token.0")?.value).toBe("first");
+    expect(response.cookies.get("sb-abc-auth-token.1")?.value).toBe("second");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("keeps refreshed cookies and cache headers on a redirect", async () => {
     fake.claims = null;
     fake.refreshedCookies = [{ name: "sb-abc-auth-token", value: "", options: { maxAge: 0 } }];
