@@ -143,13 +143,19 @@ describe("createReportWriter", () => {
       });
     });
 
-    it("caps each side at 5 claims in the schema", async () => {
+    // Claude's structured output doesn't support maxItems, so the SDK helper moves it into the
+    // description. The model still sees the cap; the pipeline's reportSchema enforces it.
+    it("tells Claude the 5-claim cap in the schema", async () => {
       const { client, create } = fakeClient();
 
       await createReportWriter({ client })("AAPL", [tenK]);
 
-      expect(sentRequest(create).output_config?.format?.schema).toMatchObject({
-        properties: { bull: { maxItems: 5 }, bear: { maxItems: 5 } },
+      const schema = sentRequest(create).output_config?.format?.schema;
+      expect(schema).toMatchObject({
+        properties: {
+          bull: { description: expect.stringContaining("maxItems: 5") },
+          bear: { description: expect.stringContaining("maxItems: 5") },
+        },
       });
     });
 
