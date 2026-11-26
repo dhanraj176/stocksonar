@@ -34,7 +34,7 @@ const REPORT_JSON_SCHEMA = (() => {
 
 /**
  * A report writer for any OpenAI-compatible chat completions endpoint (Gemini's by default).
- * Plain fetch, no SDK and no retries: a quota error should fall back at once, not spend more quota.
+ * Plain fetch, no SDK and no retries: a quota or unavailable error should fall back at once, not spend more quota.
  */
 export function createOpenAiCompatWriter(deps: OpenAiCompatWriterDeps): ReportWriter {
   const fetch = deps.fetch ?? globalThis.fetch;
@@ -138,6 +138,8 @@ function readAnswer(body: unknown, status: number): unknown {
 
 /** 429 is a rate or quota limit; 402 means prepaid credits are used up. */
 const QUOTA_STATUSES = new Set([429, 402]);
+/** Temporary overload ("high demand"). Like quota, the app falls back rather than retrying. */
+const UNAVAILABLE_STATUS = 503;
 const MAX_DETAIL_CHARS = 200;
 
 /** Google's errors come as {error:{message}} or [{error:{message}}]. Anything else gives no detail. */
@@ -155,6 +157,9 @@ async function httpError(response: Response, apiKey: string): Promise<ReportWrit
     .join("");
   const suffix = detail ? `: ${detail}` : ".";
 
+  if (response.status === UNAVAILABLE_STATUS) {
+    return new ReportWriterError("unavailable", `The provider is temporarily unavailable (HTTP 503)${suffix}`, { status: 503 });
+  }
   if (QUOTA_STATUSES.has(response.status)) {
     return new ReportWriterError("quota", `The provider's quota or rate limit was hit (HTTP ${response.status})${suffix}`, {
       status: response.status,
