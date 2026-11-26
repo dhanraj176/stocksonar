@@ -3,7 +3,7 @@ import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk
 import { getAnthropicClient, REPORT_MODEL } from "./claude";
 import { reportSchema } from "./report-pipeline";
 import { buildReportPrompt, type ReportSource } from "./report-prompt";
-import type { UsageLogger } from "./report-usage";
+import { logReportUsage, trackUsage, type UsageLogger } from "./report-usage";
 import { ReportWriterError } from "./report-writer-error";
 
 export type { ReportSource } from "./report-prompt";
@@ -30,16 +30,24 @@ export type ReportWriterDeps = {
 
 export function createReportWriter(deps: ReportWriterDeps): ReportWriter {
   const model = deps.model ?? REPORT_MODEL;
+  const usage = { provider: "claude", model, now: deps.now ?? (() => performance.now()), log: deps.log ?? logReportUsage };
   return async (ticker, sources) => {
     const prompt = buildReportPrompt(ticker, sources);
-    const message = await deps.client.messages.create({
-      model,
-      max_tokens: MAX_TOKENS,
-      system: prompt.system,
-      messages: [{ role: "user", content: prompt.user }],
-      output_config: { format: REPORT_FORMAT },
+    return trackUsage(usage, async (setTokens) => {
+      const message = await deps.client.messages.create({
+        model,
+        max_tokens: MAX_TOKENS,
+        system: prompt.system,
+        messages: [{ role: "user", content: prompt.user }],
+        output_config: { format: REPORT_FORMAT },
+      });
+      setTokens({
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens,
+        reasoningTokens: message.usage.output_tokens_details?.thinking_tokens ?? null,
+      });
+      return readAnswer(message);
     });
-    return readAnswer(message);
   };
 }
 
