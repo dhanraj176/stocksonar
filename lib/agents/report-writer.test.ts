@@ -497,7 +497,8 @@ describe("getReportWriter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe("https://api.anthropic.com/v1/messages");
-    expect(new Headers(init?.headers).get("x-api-key")).toBe("sk-ant-test-key");
+    // SDK 1.x sends the key as a bearer token.
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer sk-ant-test-key");
     expect(JSON.parse(String(init?.body))).toMatchObject({ model: REPORT_MODEL, max_tokens: 16000 });
   });
 });

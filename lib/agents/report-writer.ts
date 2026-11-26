@@ -1,7 +1,7 @@
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import type { FetchedSource } from "@/lib/domain/citation-check";
-import { REPORT_MODEL } from "./claude";
+import { getAnthropicClient, REPORT_MODEL } from "./claude";
 import { reportSchema } from "./report-pipeline";
 import { ReportWriterError } from "./report-writer-error";
 
@@ -118,5 +118,5 @@ function escapeXml(text: string): string {
 
 /** The writer the app uses: the shared client, built from ANTHROPIC_API_KEY on each call's first use. */
 export function getReportWriter(): ReportWriter {
-  throw new Error("not implemented");
+  return async (ticker, sources) => createReportWriter({ client: getAnthropicClient() })(ticker, sources);
 }
