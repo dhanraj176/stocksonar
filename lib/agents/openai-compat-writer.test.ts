@@ -367,6 +367,44 @@ describe("createOpenAiCompatWriter", () => {
       expect(JSON.stringify(error)).not.toContain(API_KEY);
     });
 
+    /** What AbortSignal.timeout rejects with when the 60 s timeout fires. */
+    function timeoutError() {
+      return new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    }
+
+    it("throws an unavailable error when the request times out, so the app can fall back", async () => {
+      const timeout = timeoutError();
+      const fetch = vi.fn<FetchLike>().mockRejectedValue(timeout);
+
+      const error = await writer(fetch)("AAPL", [tenK]).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ReportWriterError);
+      expect(error).toMatchObject({ kind: "unavailable", status: undefined });
+      expect((error as Error).message).toContain("60 s");
+      expect((error as Error).cause).toBe(timeout);
+    });
+
+    it("throws an unavailable error when the timeout fires while the answer is still arriving", async () => {
+      const body = new ReadableStream({
+        start(controller) {
+          controller.error(timeoutError());
+        },
+      });
+      const fetch = fakeFetch(() => new Response(body, { status: 200, headers: { "content-type": "application/json" } }));
+
+      const error = await writer(fetch)("AAPL", [tenK]).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ReportWriterError);
+      expect(error).toMatchObject({ kind: "unavailable" });
+    });
+
+    it("lets an abort that isn't the timeout propagate unchanged", async () => {
+      const abort = new DOMException("This operation was aborted", "AbortError");
+      const fetch = vi.fn<FetchLike>().mockRejectedValue(abort);
+
+      await expect(writer(fetch)("AAPL", [tenK])).rejects.toBe(abort);
+    });
+
     it("lets network errors propagate unchanged", async () => {
       const networkError = new TypeError("fetch failed");
       const fetch = vi.fn<FetchLike>().mockRejectedValue(networkError);
@@ -452,6 +490,14 @@ describe("createOpenAiCompatWriter", () => {
       const { log } = await logFor(() => jsonResponse({ error: { message: "High demand." } }, 503));
 
       expect(logged(log)).toMatchObject({ inputTokens: null, outputTokens: null, outcome: "unavailable" });
+    });
+
+    it("logs unavailable, with no tokens, when the request times out", async () => {
+      const { log } = await logFor(() => {
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      });
+
+      expect(logged(log)).toMatchObject({ inputTokens: null, outputTokens: null, latencyMs: 250, outcome: "unavailable" });
     });
 
     it("logs error for a network failure and still rethrows it", async () => {
