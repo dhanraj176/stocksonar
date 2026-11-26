@@ -10,6 +10,14 @@ export type ReportPrompt = { system: string; user: string };
 export const MAX_CLAIMS_PER_SIDE = 5;
 const MAX_WORDS_PER_CLAIM = 40;
 
+/**
+ * Size budgets, checked by tests so the prompt can't quietly grow. Set from a realistic large
+ * prompt (5 filings, 5 Form 4 summaries, one 10-K excerpt at the cap: 9,296 characters, 835 of
+ * them system) plus about 25% headroom. About 3,000 tokens in all.
+ */
+export const PROMPT_BUDGET_CHARS = 12_000;
+export const SYSTEM_PROMPT_BUDGET_CHARS = 1_100;
+
 /** Caps keep prompts small and cheap. Counted in code points, before escaping. */
 const MAX_SOURCE_CONTENT_CHARS = 4000;
 const MAX_SOURCE_TITLE_CHARS = 200;
