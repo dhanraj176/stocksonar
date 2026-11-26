@@ -2,6 +2,7 @@ import { z } from "zod";
 import { reportSchema } from "./report-pipeline";
 import { buildReportPrompt } from "./report-prompt";
 import type { ReportWriter } from "./report-writer";
+import { ReportWriterError } from "./report-writer-error";
 
 /** The part of fetch the writer uses. The global fetch satisfies it. */
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
@@ -35,7 +36,7 @@ export function createOpenAiCompatWriter(deps: OpenAiCompatWriterDeps): ReportWr
 
   return async (ticker, sources) => {
     const prompt = buildReportPrompt(ticker, sources);
-    await fetch(url, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { authorization: `Bearer ${deps.apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
@@ -51,6 +52,48 @@ export function createOpenAiCompatWriter(deps: OpenAiCompatWriterDeps): ReportWr
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    return undefined;
+    return readAnswer(response);
   };
+}
+
+/** Loose on purpose: Gemini's exact fields aren't documented, so only what the writer reads is checked. */
+const completionSchema = z.object({
+  choices: z
+    .array(
+      z.object({
+        message: z.object({ content: z.string().nullish(), refusal: z.string().nullish() }),
+        finish_reason: z.string().nullish(),
+      }),
+    )
+    .min(1),
+});
+
+/**
+ * Returns the answer as untrusted data for the pipeline to check. Text that isn't JSON is
+ * returned as is, so the pipeline rejects it as malformed-report with the rest.
+ */
+async function readAnswer(response: Response): Promise<unknown> {
+  const parsed = completionSchema.safeParse(await response.json().catch(() => undefined));
+  if (!parsed.success) {
+    throw new ReportWriterError("api", "The provider sent an unexpected response shape.", { status: response.status });
+  }
+
+  const [{ message, finish_reason: finishReason }] = parsed.data.choices;
+  if (finishReason === "content_filter") {
+    throw new ReportWriterError("refusal", "The provider's content filter stopped the report.", { category: "content_filter" });
+  }
+  if (message.refusal) {
+    throw new ReportWriterError("refusal", "The model declined to write the report.", { category: null });
+  }
+  if (finishReason === "length") {
+    throw new ReportWriterError("truncated", "The report was cut off (length).");
+  }
+
+  const text = message.content;
+  if (text === null || text === undefined) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
