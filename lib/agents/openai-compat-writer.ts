@@ -52,8 +52,36 @@ export function createOpenAiCompatWriter(deps: OpenAiCompatWriterDeps): ReportWr
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
+    if (!response.ok) throw await httpError(response, deps.apiKey);
     return readAnswer(response);
   };
+}
+
+/** 429 is a rate or quota limit; 402 means prepaid credits are used up. */
+const QUOTA_STATUSES = new Set([429, 402]);
+const MAX_DETAIL_CHARS = 200;
+
+/** Google's errors come as {error:{message}} or [{error:{message}}]. Anything else gives no detail. */
+const errorBodySchema = z.union([
+  z.object({ error: z.object({ message: z.string() }) }),
+  z.tuple([z.object({ error: z.object({ message: z.string() }) })], z.unknown()),
+]);
+
+/** Decided by status alone. The provider's message is untrusted: capped, stripped of control characters, key redacted. */
+async function httpError(response: Response, apiKey: string): Promise<ReportWriterError> {
+  const body = errorBodySchema.safeParse(await response.json().catch(() => undefined));
+  const message = body.success ? (Array.isArray(body.data) ? body.data[0] : body.data).error.message : "";
+  const detail = Array.from((apiKey ? message.replaceAll(apiKey, "[redacted]") : message).replace(/[\u0000-\u001f\u007f-\u009f]/g, ""))
+    .slice(0, MAX_DETAIL_CHARS)
+    .join("");
+  const suffix = detail ? `: ${detail}` : ".";
+
+  if (QUOTA_STATUSES.has(response.status)) {
+    return new ReportWriterError("quota", `The provider's quota or rate limit was hit (HTTP ${response.status})${suffix}`, {
+      status: response.status,
+    });
+  }
+  return new ReportWriterError("api", `The provider returned HTTP ${response.status}${suffix}`, { status: response.status });
 }
 
 /** Loose on purpose: Gemini's exact fields aren't documented, so only what the writer reads is checked. */
