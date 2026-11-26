@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import { getAnthropicClient, REPORT_MODEL } from "./claude";
@@ -34,13 +35,17 @@ export function createReportWriter(deps: ReportWriterDeps): ReportWriter {
   return async (ticker, sources) => {
     const prompt = buildReportPrompt(ticker, sources);
     return trackUsage(usage, async (setTokens) => {
-      const message = await deps.client.messages.create({
-        model,
-        max_tokens: MAX_TOKENS,
-        system: prompt.system,
-        messages: [{ role: "user", content: prompt.user }],
-        output_config: { format: REPORT_FORMAT },
-      });
+      const message = await deps.client.messages
+        .create({
+          model,
+          max_tokens: MAX_TOKENS,
+          system: prompt.system,
+          messages: [{ role: "user", content: prompt.user }],
+          output_config: { format: REPORT_FORMAT },
+        })
+        .catch((error: unknown) => {
+          throw asQuotaError(error);
+        });
       setTokens({
         inputTokens: message.usage.input_tokens,
         outputTokens: message.usage.output_tokens,
@@ -49,6 +54,14 @@ export function createReportWriter(deps: ReportWriterDeps): ReportWriter {
       return readAnswer(message);
     });
   };
+}
+
+/** A rate limit becomes quota, so the app can fall back to a cached report. Other errors pass through unchanged. */
+function asQuotaError(error: unknown): unknown {
+  if (error instanceof Anthropic.RateLimitError) {
+    return new ReportWriterError("quota", "Claude's rate limit was hit (HTTP 429).", { status: 429, cause: error });
+  }
+  return error;
 }
 
 /**

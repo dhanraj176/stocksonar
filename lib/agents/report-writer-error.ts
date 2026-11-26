@@ -11,9 +11,9 @@ export class ReportWriterError extends Error {
   constructor(
     kind: ReportWriterErrorKind,
     message: string,
-    details: { category?: string | null; status?: number } = {},
+    details: { category?: string | null; status?: number; cause?: unknown } = {},
   ) {
-    super(message);
+    super(message, details.cause === undefined ? undefined : { cause: details.cause });
     this.name = "ReportWriterError";
     this.kind = kind;
     this.category = details.category;
