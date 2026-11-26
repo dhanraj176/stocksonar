@@ -42,3 +42,7 @@ next-env.d.ts
 .env*
 .claude/settings.local.json
 CLAUDE.local.md
+!.env.example
+
+# supabase cli (created by `supabase link`)
+supabase/.temp/
