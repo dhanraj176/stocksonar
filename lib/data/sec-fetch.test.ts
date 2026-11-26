@@ -87,16 +87,20 @@ describe("createSecFetcher", () => {
   });
 
   it("spaces back-to-back requests at least 125 ms apart", async () => {
-    const { fetcher, clock, fetchMock } = setup();
-    const startedAt: number[] = [];
-    fetchMock.mockImplementation(async () => {
-      startedAt.push(clock.now());
-      return okJson({});
+    // The clock stands still, so each wait is measured from the same instant: starts at +0, +125, +250 ms.
+    const waits: number[] = [];
+    const fetcher = createSecFetcher({
+      userAgent: USER_AGENT,
+      fetch: vi.fn(async () => okJson({})),
+      now: () => 10_000,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
     });
 
     await Promise.all([fetcher.getJson(TICKERS_URL), fetcher.getJson(TICKERS_URL), fetcher.getJson(TICKERS_URL)]);
 
-    expect(startedAt).toEqual([10_000, 10_125, 10_250]);
+    expect(waits).toEqual([125, 250]);
   });
 
   it("does not wait when the previous request started long enough ago", async () => {
