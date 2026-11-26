@@ -2,7 +2,10 @@ import { z } from "zod";
 import type { FetchedSource } from "@/lib/domain/citation-check";
 import { parseSecResponse } from "./edgar-error";
 import { createMemoryCache, type Cache } from "./memory-cache";
+import type { InsiderTrade } from "./form4";
 import { createSecFetcher } from "./sec-fetch";
+
+export type { InsiderOwner, InsiderTrade } from "./form4";
 
 const TICKERS_URL = "https://www.sec.gov/files/company_tickers.json";
 const TICKERS_TTL_MS = 24 * 60 * 60 * 1000;
@@ -42,6 +45,8 @@ export type EdgarClient = {
   getCompanyProfile(cik: string): Promise<CompanyProfile>;
   /** Newest first. `forms` match exactly ("8-K" does not include "8-K/A"). `limit` defaults to 10. */
   getRecentFilings(cik: string, options: { forms: string[]; limit?: number }): Promise<Filing[]>;
+  /** Trades from the newest `limit` Form 4 filings (default 10). Amendments (4/A) are skipped. */
+  getInsiderTrades(cik: string, options?: { limit?: number }): Promise<InsiderTrade[]>;
 };
 
 /** SEC shape: { "0": { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." }, ... } */
@@ -135,6 +140,9 @@ export function createEdgarClient(deps: EdgarClientDeps): EdgarClient {
         if (wanted.has(recent.form[row])) filings.push(toFiling(submissions.cik, recent, row));
       }
       return filings;
+    },
+    async getInsiderTrades(cik, options = {}) {
+      throw new Error(`getInsiderTrades is not implemented (${cik}, ${options.limit})`);
     },
   };
 }

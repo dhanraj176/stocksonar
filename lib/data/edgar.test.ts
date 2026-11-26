@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AAPL_SUBMISSIONS_URL,
+  AWARD_XML_URL,
+  SALE_XML_URL,
   TICKERS_URL,
   fakeFetch,
   forbidGlobalFetch,
@@ -251,5 +253,100 @@ describe("getRecentFilings", () => {
     clock.advance(1 * MINUTE);
     await client.getCompanyProfile("0000320193");
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("getInsiderTrades", () => {
+  const saleXml = readFixture("form4-sale.xml");
+  const awardXml = readFixture("form4-award.xml");
+
+  /** Relabels every Form 4 except the two saved ones as 4/A, which the client must skip. */
+  function onlySavedForm4s(): string {
+    const body = aaplSubmissions();
+    const recent = body.filings.recent;
+    recent.form = recent.form.map((form, row) =>
+      form === "4" && !["0001140361-26-045775", "0001140361-26-040127"].includes(String(recent.accessionNumber[row]))
+        ? "4/A"
+        : form,
+    );
+    return JSON.stringify(body);
+  }
+
+  it("reads the newest Form 4 filings, skipping amendments, and returns their trades in order", async () => {
+    const { client, fetch } = setup({
+      [AAPL_SUBMISSIONS_URL]: onlySavedForm4s(),
+      [SALE_XML_URL]: saleXml,
+      [AWARD_XML_URL]: awardXml,
+    });
+
+    const trades = await client.getInsiderTrades("0000320193");
+
+    expect(trades.map((t) => [t.source.id, t.code])).toEqual([
+      ["edgar:0001140361-26-045775", "S"],
+      ["edgar:0001140361-26-040127", "M"],
+      ["edgar:0001140361-26-040127", "F"],
+      ["edgar:0001140361-26-040127", "S"],
+      ["edgar:0001140361-26-040127", "S"],
+      ["edgar:0001140361-26-040127", "S"],
+      ["edgar:0001140361-26-040127", "S"],
+      ["edgar:0001140361-26-040127", "S"],
+    ]);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([AAPL_SUBMISSIONS_URL, SALE_XML_URL, AWARD_XML_URL]);
+  });
+
+  it("reads at most `limit` Form 4 filings", async () => {
+    const { client, fetch } = setup({ [AAPL_SUBMISSIONS_URL]: readFixture("submissions-aapl.json"), [SALE_XML_URL]: saleXml });
+
+    const trades = await client.getInsiderTrades("0000320193", { limit: 1 });
+
+    expect(trades).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("fetches the raw XML but cites the human-readable filing page", async () => {
+    const { client, fetch } = setup({ [AAPL_SUBMISSIONS_URL]: readFixture("submissions-aapl.json"), [SALE_XML_URL]: saleXml });
+
+    const [trade] = await client.getInsiderTrades("0000320193", { limit: 1 });
+
+    expect(fetch).toHaveBeenCalledWith(SALE_XML_URL, expect.anything());
+    expect(trade.source.url).toBe(
+      "https://www.sec.gov/Archives/edgar/data/320193/000114036126045775/xslF345X06/form4.xml",
+    );
+  });
+
+  it("returns trades whose sources the citation check accepts", async () => {
+    const { client } = setup({
+      [AAPL_SUBMISSIONS_URL]: onlySavedForm4s(),
+      [SALE_XML_URL]: saleXml,
+      [AWARD_XML_URL]: awardXml,
+    });
+    const trades = await client.getInsiderTrades("0000320193");
+
+    const result = validateReport(
+      {
+        bull: [{ text: "An officer received shares from vesting RSUs.", sourceIds: ["edgar:0001140361-26-040127"] }],
+        bear: [{ text: "An officer sold 2,398 shares.", sourceIds: ["edgar:0001140361-26-045775"] }],
+      },
+      trades.map((trade) => trade.source),
+    );
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it("throws invalid-response when a Form 4 belongs to a different issuer", async () => {
+    const { client } = setup({
+      [AAPL_SUBMISSIONS_URL]: readFixture("submissions-aapl.json"),
+      [SALE_XML_URL]: saleXml.replace("<issuerCik>0000320193</issuerCik>", "<issuerCik>0000789019</issuerCik>"),
+    });
+
+    await expect(client.getInsiderTrades("0000320193", { limit: 1 })).rejects.toMatchObject({ kind: "invalid-response" });
+  });
+
+  it("throws invalid-response when a Form 4 has no usable XML document", async () => {
+    const body = aaplSubmissions();
+    body.filings.recent.primaryDocument[0] = "";
+    const { client } = setup({ [AAPL_SUBMISSIONS_URL]: JSON.stringify(body) });
+
+    await expect(client.getInsiderTrades("0000320193", { limit: 1 })).rejects.toMatchObject({ kind: "invalid-response" });
   });
 });
