@@ -348,6 +348,51 @@ end $$;
 
 reset role;
 
+-- 4. User A cannot read user B's positions (B's MSFT row is still seeded).
+set local role authenticated;
+select set_config('request.jwt.claims',
+  '{"sub": "00000000-0000-4000-8000-00000000000a", "role": "authenticated"}', true);
+
+do $$
+declare
+  n integer;
+begin
+  select count(*) into n from public.positions
+  where user_id = '00000000-0000-4000-8000-00000000000b';
+  if n <> 0 then
+    raise exception 'user A counted % of user B''s positions', n;
+  end if;
+
+  select count(*) into n from public.positions
+  where id = '00000000-0000-4000-9000-00000000000b';
+  if n <> 0 then
+    raise exception 'user A read user B''s position by id';
+  end if;
+
+  -- A join on B's ticker finds nothing either.
+  select count(*) into n
+  from (values ('MSFT')) as t (ticker)
+  join public.positions p on p.ticker = t.ticker;
+  if n <> 0 then
+    raise exception 'user A found user B''s position through a join';
+  end if;
+end $$;
+
+-- Back as postgres: B's row is exactly as seeded.
+reset role;
+
+do $$
+begin
+  if not exists (select 1 from public.positions
+                 where id = '00000000-0000-4000-9000-00000000000b'
+                   and user_id = '00000000-0000-4000-8000-00000000000b'
+                   and ticker = 'MSFT' and quantity = 2 and cost_basis_cents = 200
+                   and source = 'manual'
+                   and updated_at = '2000-01-01T00:00:00Z') then
+    raise exception 'user B''s position was changed';
+  end if;
+end $$;
+
 rollback;
 
 -- Only reached if every check above passed. The SQL Editor shows the result
