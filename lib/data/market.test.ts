@@ -186,3 +186,40 @@ describe("getCompanyNews", () => {
     expect(await client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26")).toEqual([]);
   });
 });
+
+describe("getCompanyNews dedupe and cap", () => {
+  const article = (id: number, datetime: number, url = `https://news.example.com/${id}`) => ({
+    id,
+    datetime,
+    headline: `Headline ${id}`,
+    source: "Example Wire",
+    summary: "",
+    url,
+  });
+  const run = (articles: unknown[]) => setup({ [NEWS_URL("AAPL")]: JSON.stringify(articles) }).client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26");
+
+  it("drops a repeated article id, keeping the newest copy", async () => {
+    const news = await run([article(7, 1795700000), article(7, 1795730400, "https://news.example.com/7-updated")]);
+
+    expect(news).toHaveLength(1);
+    expect(news[0]).toMatchObject({ id: "finnhub:news:7", url: "https://news.example.com/7-updated" });
+  });
+
+  it("drops a syndicated copy with the same URL, keeping the newest", async () => {
+    const shared = "https://news.example.com/shared-story";
+    const news = await run([article(1, 1795700000, shared), article(2, 1795730400, shared), article(3, 1795710000)]);
+
+    expect(news.map((item) => item.id)).toEqual(["finnhub:news:2", "finnhub:news:3"]);
+  });
+
+  it("keeps only the 20 newest after deduping", async () => {
+    const articles = Array.from({ length: 30 }, (_, n) => article(100 + n, 1795700000 + n * 60));
+    articles.push(article(999, 1795700000 + 29 * 60 + 1, articles[0].url)); // repeats the oldest URL, but is the newest copy
+
+    const news = await run(articles);
+
+    expect(news).toHaveLength(20);
+    expect(news[0].id).toBe("finnhub:news:999");
+    expect(news[19].id).toBe("finnhub:news:111");
+  });
+});
