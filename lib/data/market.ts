@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import type { FetchedSource } from "@/lib/domain/citation-check";
 import { numberToCents } from "@/lib/domain/money";
 import { parseMarketResponse } from "./market-error";
 import { createFinnhubFetcher } from "./market-fetch";
@@ -25,9 +26,20 @@ export type Quote = {
   asOf: string;
 };
 
+/** A news article is a FetchedSource, so reports can cite it by id. */
+export type NewsItem = FetchedSource & {
+  headline: string;
+  summary: string | null;
+  publisher: string;
+  /** UTC ISO string. */
+  publishedAt: string;
+};
+
 export type MarketClient = {
   /** Null for a ticker Finnhub doesn't know. */
   getQuote(ticker: string): Promise<Quote | null>;
+  /** Newest first. `from` and `to` are YYYY-MM-DD. */
+  getCompanyNews(ticker: string, from: string, to: string): Promise<NewsItem[]>;
 };
 
 /**
@@ -54,6 +66,18 @@ function isUnknownSymbol(quote: RawQuote): boolean {
 const realQuoteSchema = quoteSchema.refine((quote) => quote.c > 0 && quote.t > 0, {
   message: "quote has no price or no timestamp",
 });
+
+/** The parts of a /company-news article the client uses. Unknown keys are stripped. */
+const newsArticleSchema = z.object({
+  id: z.number().int().nonnegative(),
+  datetime: z.number().int().positive(),
+  headline: z.string(),
+  summary: z.string(),
+  source: z.string(),
+  url: z.string(),
+});
+
+const newsResponseSchema = z.array(newsArticleSchema);
 
 /** What the client caches. Null is a cached "unknown ticker". Re-validated on read. */
 const cachedQuoteSchema = z
@@ -93,6 +117,21 @@ export function createMarketClient(deps: MarketClientDeps): MarketClient {
           asOf: new Date(raw.t * 1000).toISOString(),
         };
       });
+    },
+    async getCompanyNews(ticker, from, to) {
+      const symbol = normalizeTicker(ticker);
+      const url = `${API_BASE}/company-news?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}`;
+      const articles = parseMarketResponse(newsResponseSchema, await finnhub.getJson(url), url);
+      return articles
+        .sort((a, b) => b.datetime - a.datetime || a.id - b.id)
+        .map((article) => ({
+          id: `finnhub:news:${article.id}`,
+          url: article.url,
+          headline: article.headline,
+          summary: article.summary || null,
+          publisher: article.source,
+          publishedAt: new Date(article.datetime * 1000).toISOString(),
+        }));
     },
   };
 }
