@@ -8,6 +8,7 @@ import { createMemoryCache, type Cache } from "./memory-cache";
 
 const API_BASE = "https://finnhub.io/api/v1";
 const QUOTE_TTL_MS = 60 * 1000;
+const MAX_NEWS_ITEMS = 20;
 
 export type MarketClientDeps = {
   apiKey: string;
@@ -122,8 +123,8 @@ export function createMarketClient(deps: MarketClientDeps): MarketClient {
       const symbol = normalizeTicker(ticker);
       const url = `${API_BASE}/company-news?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}`;
       const articles = parseMarketResponse(newsResponseSchema, await finnhub.getJson(url), url);
-      return articles
-        .sort((a, b) => b.datetime - a.datetime || a.id - b.id)
+      return newestUnique(articles)
+        .slice(0, MAX_NEWS_ITEMS)
         .map((article) => ({
           id: `finnhub:news:${article.id}`,
           url: article.url,
@@ -134,6 +135,22 @@ export function createMarketClient(deps: MarketClientDeps): MarketClient {
         }));
     },
   };
+}
+
+type NewsArticle = z.infer<typeof newsArticleSchema>;
+
+/** Newest first (ties by id), keeping the first copy seen of each article id and each URL. */
+function newestUnique(articles: NewsArticle[]): NewsArticle[] {
+  const ids = new Set<number>();
+  const urls = new Set<string>();
+  const unique: NewsArticle[] = [];
+  for (const article of [...articles].sort((a, b) => b.datetime - a.datetime || a.id - b.id)) {
+    if (ids.has(article.id) || urls.has(article.url)) continue;
+    ids.add(article.id);
+    urls.add(article.url);
+    unique.push(article);
+  }
+  return unique;
 }
 
 const TICKER = /^[A-Z0-9][A-Z0-9.-]{0,9}$/;
