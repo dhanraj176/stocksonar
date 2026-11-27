@@ -318,3 +318,50 @@ describe("getCompanyNews input checks", () => {
     expect(await client.getCompanyNews("AAPL", "2026-11-26", "2026-11-26")).toEqual([]);
   });
 });
+
+describe("getCompanyNews caching", () => {
+  const routes = {
+    [NEWS_URL("AAPL")]: readFixture("company-news-aapl.json"),
+    [NEWS_URL("AAPL", "2026-11-20", "2026-11-26")]: "[]",
+  };
+
+  it("fetches once and reuses the news for 10 minutes, then refetches", async () => {
+    const { client, fetch, clock } = setup(routes);
+
+    const first = await client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26");
+    clock.advance(10 * 60 * 1000 - 1);
+    expect(await client.getCompanyNews(" aapl ", "2026-11-01", "2026-11-26")).toEqual(first);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    clock.advance(1);
+    await client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a separate entry for each date range", async () => {
+    const { client, fetch } = setup(routes);
+
+    await client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26");
+    expect(await client.getCompanyNews("AAPL", "2026-11-20", "2026-11-26")).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches an empty result", async () => {
+    const { client, fetch } = setup(routes);
+
+    await client.getCompanyNews("AAPL", "2026-11-20", "2026-11-26");
+    await client.getCompanyNews("AAPL", "2026-11-20", "2026-11-26");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a cached value that no longer matches the schema", async () => {
+    const clock = manualClock();
+    const cache = createMemoryCache({ now: clock.now });
+    await cache.set("market:news:AAPL:2026-11-01:2026-11-26", [{ id: 5, url: "javascript:alert(1)" }], 600_000);
+    const fetch = fakeFetch(routes);
+    const client = createMarketClient({ apiKey: TEST_API_KEY, fetch, cache, now: clock.now, sleep: async () => {} });
+
+    expect(await client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26")).toHaveLength(3);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
