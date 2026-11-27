@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEST_API_KEY, fakeFetch, forbidGlobalFetch, manualClock, readFixture } from "./fixtures/market/fixtures";
 import { createMarketClient } from "./market";
+import { MarketDataError } from "./market-error";
 
 vi.mock("server-only", () => ({}));
 
@@ -54,5 +55,36 @@ describe("getQuote", () => {
 
     await expect(client.getQuote(ticker)).rejects.toThrow(RangeError);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("getQuote for bad data", () => {
+  it("returns null when every price field is zero (Finnhub's answer for an unknown symbol)", async () => {
+    const { client } = setup({ [QUOTE_URL("ZZZZ")]: readFixture("quote-unknown.json") });
+
+    expect(await client.getQuote("ZZZZ")).toBeNull();
+  });
+
+  it("treats d and dp of 0 the same as null when deciding a ticker is unknown", async () => {
+    const body = JSON.stringify({ c: 0, d: 0, dp: 0, h: 0, l: 0, o: 0, pc: 0, t: 0 });
+    const { client } = setup({ [QUOTE_URL("ZZZZ")]: body });
+
+    expect(await client.getQuote("ZZZZ")).toBeNull();
+  });
+
+  it.each([
+    ["a missing price", { pc: 171.1, t: 1795730400 }],
+    ["a string price", { c: "172.34", pc: 171.1, t: 1795730400 }],
+    ["a negative price", { c: -1, pc: 171.1, t: 1795730400 }],
+    ["a missing timestamp", { c: 172.3, pc: 171.1 }],
+    ["a zero price with a real previous close", { c: 0, h: 0, l: 0, o: 0, pc: 171.1, t: 1795730400 }],
+    ["a price with no timestamp", { c: 172.3, h: 173, l: 170, o: 171, pc: 171.1, t: 0 }],
+  ])("throws invalid-response for %s", async (_name, body) => {
+    const { client } = setup({ [QUOTE_URL("AAPL")]: JSON.stringify(body) });
+
+    const error = await client.getQuote("AAPL").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MarketDataError);
+    expect(error).toMatchObject({ kind: "invalid-response" });
   });
 });
