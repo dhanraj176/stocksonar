@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REPORT_MODEL } from "./claude";
 import { GEMINI_DEFAULT_MODEL } from "./gemini";
 import type { ReportSource } from "./report-prompt";
+// Imported once per file, not re-imported per test after vi.resetModules(). A reset makes every
+// test reload about 14 modules through the main Vitest process, inside its 5 s timeout. Under the
+// full parallel suite on slower machines that timed tests out at random (#27). No reset is needed:
+// the provider reads env on every call, and the Claude client is rebuilt when the key changes.
+import { checkReportProvider, getReportWriter } from "./report-provider";
+import { ReportWriterError } from "./report-writer-error";
 
 vi.mock("server-only", () => ({}));
 
@@ -33,14 +39,6 @@ const claudeAnswer = () =>
     usage: { input_tokens: 1, output_tokens: 1 },
   });
 
-/** A fresh copy of the modules, so env is read fresh and the memoized Claude client starts empty. */
-async function loadProvider() {
-  vi.resetModules();
-  const provider = await import("./report-provider");
-  const { ReportWriterError } = await import("./report-writer-error");
-  return { ...provider, ReportWriterError };
-}
-
 beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockImplementation(() => {
@@ -65,8 +63,6 @@ describe("getReportWriter", () => {
   it("imports and returns a writer with no env set", async () => {
     vi.stubEnv("GEMINI_API_KEY", undefined);
 
-    const { getReportWriter } = await loadProvider();
-
     expect(() => getReportWriter()).not.toThrow();
   });
 
@@ -78,7 +74,6 @@ describe("getReportWriter", () => {
   ])("sends the report to Gemini when REPORT_PROVIDER is %s", async (_label, value) => {
     vi.stubEnv("REPORT_PROVIDER", value);
     fetchMock.mockImplementation(async () => geminiAnswer());
-    const { getReportWriter } = await loadProvider();
 
     await expect(getReportWriter()("AAPL", [tenK])).resolves.toEqual(validReport);
 
@@ -92,7 +87,6 @@ describe("getReportWriter", () => {
   it("logs usage under the gemini provider", async () => {
     fetchMock.mockImplementation(async () => geminiAnswer());
     const info = vi.mocked(console.info);
-    const { getReportWriter } = await loadProvider();
 
     await getReportWriter()("AAPL", [tenK]);
 
@@ -103,7 +97,6 @@ describe("getReportWriter", () => {
     vi.stubEnv("REPORT_PROVIDER", "claude");
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test-key");
     fetchMock.mockImplementation(async () => claudeAnswer());
-    const { getReportWriter } = await loadProvider();
 
     await expect(getReportWriter()("AAPL", [tenK])).resolves.toEqual(validReport);
 
@@ -113,7 +106,6 @@ describe("getReportWriter", () => {
 
   it("rejects with a config error naming REPORT_PROVIDER for an unknown provider, sending nothing", async () => {
     vi.stubEnv("REPORT_PROVIDER", "openai");
-    const { getReportWriter, ReportWriterError } = await loadProvider();
 
     const error = await getReportWriter()("AAPL", [tenK]).catch((caught: unknown) => caught);
 
@@ -125,7 +117,6 @@ describe("getReportWriter", () => {
 
   it("rejects with a config error when Gemini has no key, sending nothing", async () => {
     vi.stubEnv("GEMINI_API_KEY", undefined);
-    const { getReportWriter, ReportWriterError } = await loadProvider();
 
     const error = await getReportWriter()("AAPL", [tenK]).catch((caught: unknown) => caught);
 
@@ -136,7 +127,6 @@ describe("getReportWriter", () => {
 
   it("reads env on each call, so switching needs no restart of the module", async () => {
     fetchMock.mockImplementation(async () => geminiAnswer());
-    const { getReportWriter } = await loadProvider();
     const write = getReportWriter();
 
     vi.stubEnv("GEMINI_MODEL", "gemini-3.8-flash");
@@ -148,15 +138,12 @@ describe("getReportWriter", () => {
 
 describe("checkReportProvider", () => {
   it("names the Gemini provider and model by default", async () => {
-    const { checkReportProvider } = await loadProvider();
-
     expect(checkReportProvider()).toEqual({ provider: "gemini", model: GEMINI_DEFAULT_MODEL });
   });
 
   it("names Claude and its model when chosen", async () => {
     vi.stubEnv("REPORT_PROVIDER", "claude");
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test-key");
-    const { checkReportProvider } = await loadProvider();
 
     expect(checkReportProvider()).toEqual({ provider: "claude", model: REPORT_MODEL });
   });
@@ -167,7 +154,6 @@ describe("checkReportProvider", () => {
     ["the provider is unknown", { REPORT_PROVIDER: "llama" }],
   ])("throws a config error, sending nothing, when %s", async (_label, env: Record<string, string | undefined>) => {
     for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
-    const { checkReportProvider, ReportWriterError } = await loadProvider();
 
     expect(() => checkReportProvider()).toThrow(ReportWriterError);
     expect(fetchMock).not.toHaveBeenCalled();
