@@ -153,6 +153,7 @@ export function createMarketClient(deps: MarketClientDeps): MarketClient {
     },
     async getCompanyNews(ticker, from, to) {
       const symbol = normalizeTicker(ticker);
+      assertDateRange(from, to);
       const url = `${API_BASE}/company-news?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}`;
       const articles = parseMarketResponse(newsResponseSchema, await finnhub.getJson(url), url);
       return newestUnique(articles)
@@ -194,4 +195,16 @@ function normalizeTicker(ticker: string): string {
     throw new RangeError(`Not a ticker: ${JSON.stringify(ticker.slice(0, 20))}`);
   }
   return symbol;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** YYYY-MM-DD, a real calendar day, and from <= to. Nothing is sent otherwise. */
+function assertDateRange(from: string, to: string) {
+  for (const date of [from, to]) {
+    const time = ISO_DATE.test(date) ? Date.parse(date + "T00:00:00Z") : NaN; // NaN for a day that doesn't exist
+    const real = !Number.isNaN(time) && new Date(time).toISOString().startsWith(date);
+    if (!real) throw new RangeError("Not a YYYY-MM-DD date: " + JSON.stringify(date.slice(0, 20)));
+  }
+  if (from > to) throw new RangeError("from " + from + " is after to " + to);
 }
