@@ -105,6 +105,9 @@ Green: `lib/db/positions.ts`.
 ## Commits (on `feat/positions`, no push)
 `docs:` this plan, then per pair `test(red):` and `feat(green):` (plus `refactor:` where useful). SQL pairs 1 to 4 first, then pairs 5 to 7. Every commit ends with the Co-Authored-By line.
 
+## Known gaps
+- `upsertMyPosition` is covered only by unit tests against a fake client. No screen calls it yet, so the real PostgREST upsert is first exercised in #1 (import). Until then, the SQL test only imitates the request PostgREST sends.
+
 ## Out of scope
 Import parsing and re-import merge rules (#1), a decimal library and portfolio math (#2), clubs (#6), generated Supabase types, pgTAP or local Supabase in CI.
 
