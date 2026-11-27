@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  costBasisCentsSchema,
   POSITION_SOURCES,
   positionInputSchema,
   positionRowSchema,
+  quantitySchema,
   sourceSchema,
   tickerSchema,
 } from "./positions";
@@ -81,5 +83,37 @@ describe("positionRowSchema", () => {
 
   it("rejects a numeric quantity, so a forgotten ::text cast fails loudly", () => {
     expect(positionRowSchema.safeParse({ ...validRow, quantity: 0.123456 }).success).toBe(false);
+  });
+});
+
+describe("money is never floating point", () => {
+  describe("costBasisCentsSchema", () => {
+    it.each([0, 12345])("accepts %j", (cents) => {
+      expect(costBasisCentsSchema.safeParse(cents).success).toBe(true);
+    });
+
+    it.each([-1, 1.5, 2 ** 53, Number.NaN, "100"])("rejects %j", (cents) => {
+      expect(costBasisCentsSchema.safeParse(cents).success).toBe(false);
+    });
+  });
+
+  describe("quantitySchema", () => {
+    it.each(["1", "0.5", "123456.123456", "999999999999.999999"])("accepts %j", (quantity) => {
+      expect(quantitySchema.safeParse(quantity).success).toBe(true);
+    });
+
+    it.each([
+      "0",
+      "0.000000",
+      "-1",
+      "1e3",
+      "1.1234567",
+      "1234567890123",
+      "",
+      "abc",
+      1.5,
+    ])("rejects %j", (quantity) => {
+      expect(quantitySchema.safeParse(quantity).success).toBe(false);
+    });
   });
 });
