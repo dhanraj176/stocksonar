@@ -1,5 +1,9 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Data sources
+
+StockSonar is a non-commercial class project. It uses SEC EDGAR for filings and insider trades, and Finnhub's free Personal Use plan for quotes and company news (see `docs/decisions/market-data.md`). A real launch would need a licensed market-data plan.
+
 ## Getting Started
 
 First, run the development server:

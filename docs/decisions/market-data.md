@@ -1,6 +1,6 @@
 # Decision: market-data and news provider (#16)
 
-Status: **proposed, not yet agreed.** The issue requires both of us to agree on one provider. Record the agreement at the bottom.
+Status: **agreed: Finnhub, with conditions.** See Agreement at the bottom.
 
 Research date: 2026-11-26. Items marked **UNVERIFIED** could not be confirmed from an official page (JS-rendered pages returned no content, or the page was a PDF we could not read). Third-party summaries are noted as such. Check each UNVERIFIED item by hand on the provider's site before we build `lib/data/market.ts`.
 
@@ -43,8 +43,24 @@ This is provisional because the evidence for Finnhub's free-tier details is most
 
 ## Verified by hand
 
-2026-11-26, Nakul: a free Finnhub key works for `/quote` and `/company-news`. The other Finnhub items above (rate limit, quote delay, news window, card, terms) are still unverified.
+2026-11-26, Nakul, on finnhub.io (stated by Nakul; not re-checked by Claude):
+
+- A free key works for `/quote` and `/company-news`.
+- Free plan costs $0, with a limit of 60 API calls per minute plus a 30 calls per second cap. Going over returns HTTP 429.
+- License: Personal Use. Coverage: US. Company news has 1 year of history.
+- Auth: the `X-Finnhub-Token` header.
+- Terms of Service: no redistributing or sharing data or derived results with anyone without written approval from Finnhub. Data must be deleted if the subscription ends. Inactive accounts may be deleted.
+
+Still unverified: quote delay (real-time vs delayed on the free plan) and whether a credit card is needed.
 
 ## Agreement
 
-Pending Dhanraj. Not yet agreed. When Dhanraj and Nakul agree, add: provider chosen, date, and any terms answers received.
+Finnhub, agreed by Nakul and Dhanraj on 2026-11-26, on these conditions:
+
+1. StockSonar stays a non-commercial class project.
+2. We have emailed support@finnhub.io for educational approval.
+3. Until approval arrives, only our own two accounts use the app with this data.
+4. The provider stays behind the `MarketClient` interface in `lib/data/market.ts`, so it can be swapped.
+5. Prices and news are cached briefly (60 seconds for quotes, 10 minutes for news), and the cache holds only what Finnhub's terms allow. Nothing is shared onward.
+
+If approval is refused, or the project stops being non-commercial, switch to Massive Basic (the fallback above) or a licensed plan.
