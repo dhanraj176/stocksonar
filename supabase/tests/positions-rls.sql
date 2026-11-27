@@ -170,6 +170,50 @@ end $$;
 
 rollback to savepoint pair1;
 
+-- 2. Uniqueness: one row per (user, ticker) (as postgres).
+savepoint pair2;
+
+do $$
+declare
+  n integer;
+begin
+  insert into public.positions (user_id, ticker, quantity, cost_basis_cents, source)
+  values ('00000000-0000-4000-8000-00000000000a', 'AAPL', 1, 100, 'csv');
+
+  -- A second row for the same user and ticker is rejected.
+  begin
+    insert into public.positions (user_id, ticker, quantity, cost_basis_cents, source)
+    values ('00000000-0000-4000-8000-00000000000a', 'AAPL', 2, 200, 'manual');
+    raise exception 'a duplicate (user, ticker) was accepted';
+  exception when unique_violation then null;
+  end;
+
+  -- The same ticker for a different user is fine.
+  insert into public.positions (user_id, ticker, quantity, cost_basis_cents, source)
+  values ('00000000-0000-4000-8000-00000000000b', 'AAPL', 3, 300, 'csv');
+
+  -- Upsert replaces quantity, cost and source, and leaves one row.
+  insert into public.positions (user_id, ticker, quantity, cost_basis_cents, source)
+  values ('00000000-0000-4000-8000-00000000000a', 'AAPL', 5, 500, 'screenshot')
+  on conflict (user_id, ticker) do update
+    set quantity = excluded.quantity,
+        cost_basis_cents = excluded.cost_basis_cents,
+        source = excluded.source;
+
+  select count(*) into n from public.positions
+  where user_id = '00000000-0000-4000-8000-00000000000a' and ticker = 'AAPL';
+  if n <> 1 then
+    raise exception 'upsert should leave exactly one row, found %', n;
+  end if;
+  if not exists (select 1 from public.positions
+                 where user_id = '00000000-0000-4000-8000-00000000000a' and ticker = 'AAPL'
+                   and quantity = 5 and cost_basis_cents = 500 and source = 'screenshot') then
+    raise exception 'upsert did not replace quantity, cost and source';
+  end if;
+end $$;
+
+rollback to savepoint pair2;
+
 rollback;
 
 -- Only reached if every check above passed. The SQL Editor shows the result
