@@ -133,3 +133,56 @@ describe("getQuote caching", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
+
+const NEWS_URL = (symbol: string, from = "2026-11-01", to = "2026-11-26") =>
+  `https://finnhub.io/api/v1/company-news?symbol=${symbol}&from=${from}&to=${to}`;
+
+describe("getCompanyNews", () => {
+  const routes = { [NEWS_URL("AAPL")]: readFixture("company-news-aapl.json") };
+
+  it("returns FetchedSource objects newest first, with UTC publish times", async () => {
+    const { client } = setup(routes);
+
+    expect(await client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26")).toEqual([
+      {
+        id: "finnhub:news:1003",
+        url: "https://news.example.org/services-growth",
+        headline: "Analyst note questions services growth",
+        summary: null,
+        publisher: "Sample Daily",
+        publishedAt: "2026-11-26T22:30:00.000Z",
+      },
+      {
+        id: "finnhub:news:1001",
+        url: "https://news.example.com/product-event",
+        headline: "Company schedules product event",
+        summary: "The event is set for next month.",
+        publisher: "Example Wire",
+        publishedAt: "2026-11-26T22:00:00.000Z",
+      },
+      {
+        id: "finnhub:news:1002",
+        url: "https://news.example.com/supplier-update",
+        headline: "Supplier update lifts chip orders",
+        summary: "A component supplier raised its outlook.",
+        publisher: "Example Wire",
+        publishedAt: "2026-11-26T21:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("breaks ties between articles with the same time by id", async () => {
+    const item = (id: number) => ({ datetime: 1795730400, headline: "h", id, source: "s", summary: "", url: `https://news.example.com/${id}` });
+    const { client } = setup({ [NEWS_URL("AAPL")]: JSON.stringify([item(9), item(3), item(5)]) });
+
+    const ids = (await client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26")).map((news) => news.id);
+
+    expect(ids).toEqual(["finnhub:news:3", "finnhub:news:5", "finnhub:news:9"]);
+  });
+
+  it("returns an empty list when there is no news", async () => {
+    const { client } = setup({ [NEWS_URL("AAPL")]: "[]" });
+
+    expect(await client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26")).toEqual([]);
+  });
+});
