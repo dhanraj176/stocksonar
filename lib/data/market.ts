@@ -126,7 +126,7 @@ const cachedQuoteSchema = z
 /** What the client caches for news. Re-validated on read, including the URL rule. */
 const cachedNewsSchema = z.array(
   z.object({
-    id: z.string().regex(/^finnhub:news:d+$/),
+    id: z.string().regex(/^finnhub:news:\d+$/),
     url: webUrlSchema,
     headline: z.string().min(1),
     summary: z.string().nullable(),
