@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEST_API_KEY, fakeFetch, forbidGlobalFetch, manualClock, readFixture } from "./fixtures/market/fixtures";
 import { createMarketClient } from "./market";
 import { MarketDataError } from "./market-error";
+import { createMemoryCache } from "./memory-cache";
 
 vi.mock("server-only", () => ({}));
 
@@ -86,5 +87,49 @@ describe("getQuote for bad data", () => {
 
     expect(error).toBeInstanceOf(MarketDataError);
     expect(error).toMatchObject({ kind: "invalid-response" });
+  });
+});
+
+describe("getQuote caching", () => {
+  const routes = { [QUOTE_URL("AAPL")]: readFixture("quote-aapl.json"), [QUOTE_URL("ZZZZ")]: readFixture("quote-unknown.json") };
+
+  it("fetches once and reuses the quote for 60 seconds, then refetches", async () => {
+    const { client, fetch, clock } = setup(routes);
+
+    const first = await client.getQuote("AAPL");
+    clock.advance(59_000);
+    expect(await client.getQuote(" aapl ")).toEqual(first);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    clock.advance(1_000);
+    await client.getQuote("AAPL");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches an unknown ticker too, so a typo can't be hammered", async () => {
+    const { client, fetch } = setup(routes);
+
+    expect(await client.getQuote("ZZZZ")).toBeNull();
+    expect(await client.getQuote("ZZZZ")).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a cached value that no longer matches the schema", async () => {
+    const clock = manualClock();
+    const cache = createMemoryCache({ now: clock.now });
+    await cache.set("market:quote:AAPL", { ticker: "AAPL", priceCents: "lots" }, 60_000);
+    const fetch = fakeFetch(routes);
+    const client = createMarketClient({ apiKey: TEST_API_KEY, fetch, cache, now: clock.now, sleep: async () => {} });
+
+    expect((await client.getQuote("AAPL"))?.priceCents).toBe(17235);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cache a failed request", async () => {
+    const { client, fetch } = setup({ [QUOTE_URL("AAPL")]: { status: 500, body: "boom" } });
+
+    await expect(client.getQuote("AAPL")).rejects.toMatchObject({ kind: "http" });
+    await expect(client.getQuote("AAPL")).rejects.toMatchObject({ kind: "http" });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
