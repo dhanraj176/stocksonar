@@ -6,6 +6,7 @@ import { createFinnhubFetcher } from "./market-fetch";
 import { createMemoryCache, type Cache } from "./memory-cache";
 
 const API_BASE = "https://finnhub.io/api/v1";
+const QUOTE_TTL_MS = 60 * 1000;
 
 export type MarketClientDeps = {
   apiKey: string;
@@ -54,24 +55,44 @@ const realQuoteSchema = quoteSchema.refine((quote) => quote.c > 0 && quote.t > 0
   message: "quote has no price or no timestamp",
 });
 
+/** What the client caches. Null is a cached "unknown ticker". Re-validated on read. */
+const cachedQuoteSchema = z
+  .object({
+    ticker: z.string(),
+    priceCents: z.number().int().nonnegative(),
+    previousCloseCents: z.number().int().nonnegative(),
+    asOf: z.iso.datetime(),
+  })
+  .nullable();
+
 export function createMarketClient(deps: MarketClientDeps): MarketClient {
   const finnhub = createFinnhubFetcher(deps);
-  void (deps.cache ?? createMemoryCache({ now: deps.now }));
+  const cache = deps.cache ?? createMemoryCache({ now: deps.now });
+
+  async function cached<T>(key: string, ttlMs: number, schema: z.ZodType<T>, load: () => Promise<T>): Promise<T> {
+    const hit = schema.safeParse(await cache.get(key));
+    if (hit.success) return hit.data;
+    const value = await load();
+    await cache.set(key, value, ttlMs);
+    return value;
+  }
 
   return {
     async getQuote(ticker) {
       const symbol = normalizeTicker(ticker);
-      const url = `${API_BASE}/quote?symbol=${encodeURIComponent(symbol)}`;
-      const body = await finnhub.getJson(url);
-      const shape = parseMarketResponse(quoteSchema, body, url);
-      if (isUnknownSymbol(shape)) return null;
-      const raw = parseMarketResponse(realQuoteSchema, body, url);
-      return {
-        ticker: symbol,
-        priceCents: numberToCents(raw.c),
-        previousCloseCents: numberToCents(raw.pc),
-        asOf: new Date(raw.t * 1000).toISOString(),
-      };
+      return cached(`market:quote:${symbol}`, QUOTE_TTL_MS, cachedQuoteSchema, async () => {
+        const url = `${API_BASE}/quote?symbol=${encodeURIComponent(symbol)}`;
+        const body = await finnhub.getJson(url);
+        const shape = parseMarketResponse(quoteSchema, body, url);
+        if (isUnknownSymbol(shape)) return null;
+        const raw = parseMarketResponse(realQuoteSchema, body, url);
+        return {
+          ticker: symbol,
+          priceCents: numberToCents(raw.c),
+          previousCloseCents: numberToCents(raw.pc),
+          asOf: new Date(raw.t * 1000).toISOString(),
+        };
+      });
     },
   };
 }
