@@ -21,3 +21,11 @@ export function dollarsToCents(dollars: string): number {
   }
   return cents;
 }
+
+/**
+ * Converts a JSON-number dollar amount (172.345) to integer cents. The shortest round-trip
+ * string of the number goes through dollarsToCents, so no float math touches the cents.
+ */
+export function numberToCents(dollars: number): number {
+  return dollarsToCents(String(dollars));
+}

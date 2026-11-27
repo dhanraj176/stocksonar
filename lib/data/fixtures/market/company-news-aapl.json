@@ -1,0 +1,5 @@
+[
+  {"category":"company","datetime":1795726800,"headline":"Supplier update lifts chip orders","id":1002,"image":"","related":"AAPL","source":"Example Wire","summary":"A component supplier raised its outlook.","url":"https://news.example.com/supplier-update"},
+  {"category":"company","datetime":1795730400,"headline":"Company schedules product event","id":1001,"image":"","related":"AAPL","source":"Example Wire","summary":"The event is set for next month.","url":"https://news.example.com/product-event"},
+  {"category":"company","datetime":1795732200,"headline":"Analyst note questions services growth","id":1003,"image":"","related":"AAPL","source":"Sample Daily","summary":"","url":"https://news.example.org/services-growth"}
+]
