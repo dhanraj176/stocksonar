@@ -23,7 +23,7 @@ export async function listMyPositions(): Promise<PositionRow[]> {
     .eq("user_id", user.id)
     .order("ticker");
 
-  if (error) throw new Error("Could not load your positions.");
+  if (error) throw new Error("Could not load your positions.", { cause: error });
   return (data ?? []).map((row) => positionRowSchema.parse(row));
 }
 
@@ -47,7 +47,7 @@ export async function upsertMyPosition(input: PositionInput): Promise<PositionRo
     .select(COLUMNS)
     .single();
 
-  if (error) throw new Error("Could not save your position.");
+  if (error) throw new Error("Could not save your position.", { cause: error });
   return positionRowSchema.parse(data);
 }
 
@@ -61,5 +61,5 @@ export async function deleteMyPosition(ticker: string): Promise<void> {
     .eq("user_id", user.id)
     .eq("ticker", normalised);
 
-  if (error) throw new Error("Could not delete your position.");
+  if (error) throw new Error("Could not delete your position.", { cause: error });
 }
