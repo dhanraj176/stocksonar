@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dollarsToCents } from "./money";
+import { dollarsToCents, numberToCents } from "./money";
 
 describe("dollarsToCents", () => {
   it.each([
@@ -24,5 +24,17 @@ describe("dollarsToCents", () => {
 
   it.each(["", " ", "-1", "1e3", "abc", "1.2.3", ".5", "5.", "$5", "1,000"])("rejects %j", (input) => {
     expect(() => dollarsToCents(input)).toThrow(RangeError);
+  });
+});
+
+describe("numberToCents", () => {
+  it.each([
+    [172.34, 17234],
+    [0.1 + 0.2, 30],
+    [172.345, 17235],
+    [5, 500],
+    [0, 0],
+  ])("converts %d dollars to %i cents without float drift", (input, cents) => {
+    expect(numberToCents(input)).toBe(cents);
   });
 });
