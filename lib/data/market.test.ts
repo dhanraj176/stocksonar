@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEST_API_KEY, fakeFetch, forbidGlobalFetch, manualClock, readFixture } from "./fixtures/market/fixtures";
+import { validateReport } from "@/lib/domain/citation-check";
 import { createMarketClient } from "./market";
 import { MarketDataError } from "./market-error";
 import { createMemoryCache } from "./memory-cache";
@@ -363,5 +364,18 @@ describe("getCompanyNews caching", () => {
 
     expect(await client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26")).toHaveLength(3);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("news as citable sources", () => {
+  it("lets a report cite a fetched article and rejects an id that was never fetched", async () => {
+    const { client } = setup({ [NEWS_URL("AAPL")]: readFixture("company-news-aapl.json") });
+    const news = await client.getCompanyNews("AAPL", "2026-11-01", "2026-11-26");
+
+    const cited = { bull: [{ text: "Supplier raised its outlook.", sourceIds: ["finnhub:news:1002"] }], bear: [{ text: "Growth question.", sourceIds: [news[0].id] }] };
+    const invented = { bull: [{ text: "Made up.", sourceIds: ["finnhub:news:424242"] }], bear: cited.bear };
+
+    expect(validateReport(cited, news).valid).toBe(true);
+    expect(validateReport(invented, news).errors).toEqual([{ section: "bull", claim: 1, reason: "unknown-source", sourceId: "finnhub:news:424242" }]);
   });
 });
