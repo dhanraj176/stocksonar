@@ -8,6 +8,7 @@ import { createMemoryCache, type Cache } from "./memory-cache";
 
 const API_BASE = "https://finnhub.io/api/v1";
 const QUOTE_TTL_MS = 60 * 1000;
+const NEWS_TTL_MS = 10 * 60 * 1000;
 const MAX_NEWS_ITEMS = 20;
 const MAX_HEADLINE_CHARS = 300;
 const MAX_SUMMARY_CHARS = 1000;
@@ -122,6 +123,18 @@ const cachedQuoteSchema = z
   })
   .nullable();
 
+/** What the client caches for news. Re-validated on read, including the URL rule. */
+const cachedNewsSchema = z.array(
+  z.object({
+    id: z.string().regex(/^finnhub:news:d+$/),
+    url: webUrlSchema,
+    headline: z.string().min(1),
+    summary: z.string().nullable(),
+    publisher: z.string().min(1),
+    publishedAt: z.iso.datetime(),
+  }),
+);
+
 export function createMarketClient(deps: MarketClientDeps): MarketClient {
   const finnhub = createFinnhubFetcher(deps);
   const cache = deps.cache ?? createMemoryCache({ now: deps.now });
@@ -154,18 +167,20 @@ export function createMarketClient(deps: MarketClientDeps): MarketClient {
     async getCompanyNews(ticker, from, to) {
       const symbol = normalizeTicker(ticker);
       assertDateRange(from, to);
-      const url = `${API_BASE}/company-news?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}`;
-      const articles = parseMarketResponse(newsResponseSchema, await finnhub.getJson(url), url);
-      return newestUnique(articles)
-        .slice(0, MAX_NEWS_ITEMS)
-        .map((article) => ({
-          id: `finnhub:news:${article.id}`,
-          url: article.url,
-          headline: article.headline,
-          summary: article.summary || null,
-          publisher: article.source,
-          publishedAt: new Date(article.datetime * 1000).toISOString(),
-        }));
+      return cached(`market:news:${symbol}:${from}:${to}`, NEWS_TTL_MS, cachedNewsSchema, async () => {
+        const url = `${API_BASE}/company-news?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}`;
+        const articles = parseMarketResponse(newsResponseSchema, await finnhub.getJson(url), url);
+        return newestUnique(articles)
+          .slice(0, MAX_NEWS_ITEMS)
+          .map((article) => ({
+            id: `finnhub:news:${article.id}`,
+            url: article.url,
+            headline: article.headline,
+            summary: article.summary || null,
+            publisher: article.source,
+            publishedAt: new Date(article.datetime * 1000).toISOString(),
+          }));
+      });
     },
   };
 }
