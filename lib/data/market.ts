@@ -2,7 +2,7 @@ import "server-only";
 import { z } from "zod";
 import type { FetchedSource } from "@/lib/domain/citation-check";
 import { numberToCents } from "@/lib/domain/money";
-import { parseMarketResponse } from "./market-error";
+import { MarketDataError, parseMarketResponse } from "./market-error";
 import { createFinnhubFetcher } from "./market-fetch";
 import { createMemoryCache, type Cache } from "./memory-cache";
 
@@ -222,4 +222,22 @@ function assertDateRange(from: string, to: string) {
     if (!real) throw new RangeError("Not a YYYY-MM-DD date: " + JSON.stringify(date.slice(0, 20)));
   }
   if (from > to) throw new RangeError("from " + from + " is after to " + to);
+}
+
+let shared: { apiKey: string; client: MarketClient } | undefined;
+
+/**
+ * The process-wide client, built from FINNHUB_API_KEY on first use (not at import, so builds need
+ * no env). One client means one rate limiter and one cache for every request this process makes.
+ * "server-only" at the top keeps this module, and the key, out of the browser. Errors never echo the key.
+ */
+export function getMarketClient(): MarketClient {
+  const apiKey = process.env.FINNHUB_API_KEY?.trim();
+  if (!apiKey) {
+    throw new MarketDataError("config", "FINNHUB_API_KEY must be set to your Finnhub API key (see .env.example).");
+  }
+  if (shared?.apiKey !== apiKey) {
+    shared = { apiKey, client: createMarketClient({ apiKey }) };
+  }
+  return shared.client;
 }
