@@ -130,6 +130,16 @@ begin
     raise exception 'negative cost basis was accepted';
   exception when check_violation then null;
   end;
+  -- ... and it must stay a safe integer (2^53 - 1), so a direct write cannot
+  -- create a row the zod schema rejects.
+  insert into public.positions (user_id, ticker, quantity, cost_basis_cents, source)
+  values ('00000000-0000-4000-8000-00000000000a', 'CMAX', 1, 9007199254740991, 'manual');
+  begin
+    insert into public.positions (user_id, ticker, quantity, cost_basis_cents, source)
+    values ('00000000-0000-4000-8000-00000000000a', 'COVR', 1, 9007199254740992, 'manual');
+    raise exception 'a cost basis above 2^53 - 1 was accepted';
+  exception when check_violation then null;
+  end;
 
   -- user_id must reference a profile.
   begin
@@ -224,6 +234,28 @@ values
   ('00000000-0000-4000-9000-00000000000b', '00000000-0000-4000-8000-00000000000b',
    'MSFT', 2, 200, 'manual', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
 
+-- Privileges and RLS flag (as postgres). TRUNCATE, REFERENCES and TRIGGER
+-- would bypass or sidestep RLS, so authenticated must not hold them; anon
+-- holds nothing; and no table-wide INSERT/UPDATE (only the column grants).
+do $$
+declare
+  priv text;
+begin
+  if not (select relrowsecurity from pg_class where oid = 'public.positions'::regclass) then
+    raise exception 'row level security is not enabled on positions';
+  end if;
+  foreach priv in array array['TRUNCATE', 'REFERENCES', 'TRIGGER', 'INSERT', 'UPDATE'] loop
+    if has_table_privilege('authenticated', 'public.positions', priv) then
+      raise exception 'authenticated has table-wide % on positions', priv;
+    end if;
+  end loop;
+  foreach priv in array array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] loop
+    if has_table_privilege('anon', 'public.positions', priv) then
+      raise exception 'anon has % on positions', priv;
+    end if;
+  end loop;
+end $$;
+
 set local role authenticated;
 select set_config('request.jwt.claims',
   '{"sub": "00000000-0000-4000-8000-00000000000a", "role": "authenticated"}', true);
@@ -266,6 +298,37 @@ begin
                    and quantity = 7 and cost_basis_cents = 700 and source = 'screenshot') then
     raise exception 'upsert as user A did not replace their row';
   end if;
+
+  -- Upsert aimed at B's row (same shape PostgREST sends) is refused, and B's
+  -- row is unchanged.
+  begin
+    insert into public.positions (user_id, ticker, quantity, cost_basis_cents, source)
+    values ('00000000-0000-4000-8000-00000000000b', 'MSFT', 99, 9900, 'screenshot')
+    on conflict (user_id, ticker) do update
+      set user_id = excluded.user_id,
+          ticker = excluded.ticker,
+          quantity = excluded.quantity,
+          cost_basis_cents = excluded.cost_basis_cents,
+          source = excluded.source;
+    raise exception 'user A upserted over user B''s position';
+  exception when insufficient_privilege then null; -- 42501
+  end;
+
+  -- Inserting with an explicit id or created_at fails: no column grant.
+  begin
+    insert into public.positions (id, user_id, ticker, quantity, cost_basis_cents, source)
+    values ('00000000-0000-4000-9000-0000000000ee', '00000000-0000-4000-8000-00000000000a',
+            'IDX', 1, 100, 'manual');
+    raise exception 'user A inserted a position with an explicit id';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.positions (created_at, user_id, ticker, quantity, cost_basis_cents, source)
+    values ('2000-01-01T00:00:00Z', '00000000-0000-4000-8000-00000000000a',
+            'CAT', 1, 100, 'manual');
+    raise exception 'user A inserted a position with an explicit created_at';
+  exception when insufficient_privilege then null;
+  end;
 
   -- Update: A's own row yes (1 row); B's row no (RLS filters it: 0 rows).
   update public.positions set quantity = 3
