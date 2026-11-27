@@ -38,3 +38,9 @@ describe("numberToCents", () => {
     expect(numberToCents(input)).toBe(cents);
   });
 });
+
+describe("numberToCents rejects", () => {
+  it.each([NaN, Infinity, -Infinity, -1, -0.01, 1e-7, 1e21])("%d", (input) => {
+    expect(() => numberToCents(input)).toThrow(RangeError);
+  });
+});
