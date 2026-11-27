@@ -295,3 +295,26 @@ describe("getCompanyNews untrusted input", () => {
     },
   );
 });
+
+describe("getCompanyNews input checks", () => {
+  const routes = { [NEWS_URL("AAPL")]: "[]" };
+
+  it.each([
+    ["a bad ticker", "AAPL&x=1", "2026-11-01", "2026-11-26"],
+    ["a non-ISO from date", "AAPL", "11/01/2026", "2026-11-26"],
+    ["a date with trailing text", "AAPL", "2026-11-01", "2026-11-26&token=x"],
+    ["a date that does not exist", "AAPL", "2026-02-30", "2026-11-26"],
+    ["a from date after the to date", "AAPL", "2026-11-27", "2026-11-26"],
+  ])("throws RangeError for %s before any request", async (_name, ticker, from, to) => {
+    const { client, fetch } = setup(routes);
+
+    await expect(client.getCompanyNews(ticker, from, to)).rejects.toThrow(RangeError);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("accepts a one-day range", async () => {
+    const { client } = setup({ [NEWS_URL("AAPL", "2026-11-26", "2026-11-26")]: "[]" });
+
+    expect(await client.getCompanyNews("AAPL", "2026-11-26", "2026-11-26")).toEqual([]);
+  });
+});
