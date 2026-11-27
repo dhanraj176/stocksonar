@@ -214,6 +214,140 @@ end $$;
 
 rollback to savepoint pair2;
 
+-- 3. RLS: each user creates, reads, updates and deletes only their own rows.
+-- Seed as postgres: one row each for A and B. These stay for section 4.
+insert into public.positions (id, user_id, ticker, quantity, cost_basis_cents, source,
+                              created_at, updated_at)
+values
+  ('00000000-0000-4000-9000-00000000000a', '00000000-0000-4000-8000-00000000000a',
+   'AAPL', 1, 100, 'csv', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z'),
+  ('00000000-0000-4000-9000-00000000000b', '00000000-0000-4000-8000-00000000000b',
+   'MSFT', 2, 200, 'manual', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
+
+set local role authenticated;
+select set_config('request.jwt.claims',
+  '{"sub": "00000000-0000-4000-8000-00000000000a", "role": "authenticated"}', true);
+
+do $$
+declare
+  n integer;
+begin
+  -- Select returns exactly A's rows.
+  select count(*) into n from public.positions;
+  if n <> 1 then
+    raise exception 'user A should see exactly 1 position, saw %', n;
+  end if;
+  if not exists (select 1 from public.positions
+                 where user_id = '00000000-0000-4000-8000-00000000000a') then
+    raise exception 'user A cannot see their own position';
+  end if;
+
+  -- Insert for A works; insert for B is rejected by RLS.
+  insert into public.positions (user_id, ticker, quantity, cost_basis_cents, source)
+  values ('00000000-0000-4000-8000-00000000000a', 'GOOG', 1, 100, 'manual');
+  begin
+    insert into public.positions (user_id, ticker, quantity, cost_basis_cents, source)
+    values ('00000000-0000-4000-8000-00000000000b', 'GOOG', 1, 100, 'manual');
+    raise exception 'user A inserted a position for user B';
+  exception when insufficient_privilege then null; -- 42501, "violates row-level security policy"
+  end;
+
+  -- Upsert as A (what PostgREST sends) replaces A's row.
+  insert into public.positions (user_id, ticker, quantity, cost_basis_cents, source)
+  values ('00000000-0000-4000-8000-00000000000a', 'AAPL', 7, 700, 'screenshot')
+  on conflict (user_id, ticker) do update
+    set user_id = excluded.user_id,
+        ticker = excluded.ticker,
+        quantity = excluded.quantity,
+        cost_basis_cents = excluded.cost_basis_cents,
+        source = excluded.source;
+  if not exists (select 1 from public.positions
+                 where user_id = '00000000-0000-4000-8000-00000000000a' and ticker = 'AAPL'
+                   and quantity = 7 and cost_basis_cents = 700 and source = 'screenshot') then
+    raise exception 'upsert as user A did not replace their row';
+  end if;
+
+  -- Update: A's own row yes (1 row); B's row no (RLS filters it: 0 rows).
+  update public.positions set quantity = 3
+  where user_id = '00000000-0000-4000-8000-00000000000a' and ticker = 'GOOG';
+  get diagnostics n = row_count;
+  if n <> 1 then
+    raise exception 'user A could not update their own position';
+  end if;
+  update public.positions set quantity = 99
+  where id = '00000000-0000-4000-9000-00000000000b';
+  get diagnostics n = row_count;
+  if n <> 0 then
+    raise exception 'user A updated user B''s position';
+  end if;
+
+  -- Cannot hand a row to B (the update policy's with check).
+  begin
+    update public.positions set user_id = '00000000-0000-4000-8000-00000000000b'
+    where id = '00000000-0000-4000-9000-00000000000a';
+    raise exception 'user A reassigned a position to user B';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- id, created_at and updated_at are not client-writable (no column grant).
+  begin
+    update public.positions set id = '00000000-0000-4000-9000-0000000000ff'
+    where id = '00000000-0000-4000-9000-00000000000a';
+    raise exception 'user A changed a position id';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.positions set created_at = now()
+    where id = '00000000-0000-4000-9000-00000000000a';
+    raise exception 'user A changed created_at';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.positions set updated_at = now()
+    where id = '00000000-0000-4000-9000-00000000000a';
+    raise exception 'user A changed updated_at';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- The ticker check still applies to updates.
+  begin
+    update public.positions set ticker = 'aapl'
+    where id = '00000000-0000-4000-9000-00000000000a';
+    raise exception 'a lowercase ticker was accepted on update';
+  exception when check_violation then null;
+  end;
+
+  -- Delete: B's row 0 rows; A's own row 1 row.
+  delete from public.positions where id = '00000000-0000-4000-9000-00000000000b';
+  get diagnostics n = row_count;
+  if n <> 0 then
+    raise exception 'user A deleted user B''s position';
+  end if;
+  delete from public.positions where id = '00000000-0000-4000-9000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 1 then
+    raise exception 'user A could not delete their own position';
+  end if;
+end $$;
+
+-- Signed out: no access at all.
+reset role;
+set local role anon;
+select set_config('request.jwt.claims', '{"role": "anon"}', true);
+
+do $$
+declare
+  n integer;
+begin
+  begin
+    select count(*) into n from public.positions;
+    raise exception 'anon could read positions';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+
 rollback;
 
 -- Only reached if every check above passed. The SQL Editor shows the result
