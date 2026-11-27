@@ -41,6 +41,10 @@ This is provisional because the evidence for Finnhub's free-tier details is most
 - [ ] If Finnhub's terms rule out our use, switch to Massive Basic after the same check on its Individuals terms.
 - [ ] Note that the quote's as-of time must come from the API response, and the UI must label quotes as delayed.
 
+## Verified by hand
+
+2026-11-26, Nakul: a free Finnhub key works for `/quote` and `/company-news`. The other Finnhub items above (rate limit, quote delay, news window, card, terms) are still unverified.
+
 ## Agreement
 
-Not yet recorded. When Dhanraj and Nakul agree, add: provider chosen, date, and any terms answers received.
+Pending Dhanraj. Not yet agreed. When Dhanraj and Nakul agree, add: provider chosen, date, and any terms answers received.
