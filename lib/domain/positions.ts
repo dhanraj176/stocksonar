@@ -11,11 +11,16 @@ export const tickerSchema = z
   .toUpperCase()
   .regex(/^[A-Z][A-Z0-9.-]{0,9}$/);
 
-// A decimal string, never a JS number: the column is numeric(18,6).
-export const quantitySchema = z.string();
+// A positive decimal string, never a JS number: the column is numeric(18,6).
+// Up to 12 whole digits and 6 decimals; more decimals are rejected, not rounded.
+export const quantitySchema = z
+  .string()
+  .regex(/^\d{1,12}(\.\d{1,6})?$/)
+  .refine((value) => /[1-9]/.test(value), { message: "Quantity must be greater than zero" });
 
-// Integer cents, the TOTAL cost of the position (not per share).
-export const costBasisCentsSchema = z.int();
+// Integer cents, the TOTAL cost of the position (not per share). z.int() only
+// accepts safe integers.
+export const costBasisCentsSchema = z.int().nonnegative();
 
 // What the app writes (camelCase).
 export const positionInputSchema = z.object({
