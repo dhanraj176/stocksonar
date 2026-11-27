@@ -60,3 +60,48 @@ describe("createFinnhubFetcher", () => {
     await expect(fetcher.getJson(QUOTE_URL)).rejects.toMatchObject({ kind: "invalid-response", url: QUOTE_URL });
   });
 });
+
+describe("rate limit", () => {
+  const url = (n: number) => `https://finnhub.io/api/v1/quote?symbol=T${n}`;
+  const routes = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, n) => [url(n), "{}"]));
+
+  function limited(count: number) {
+    const clock = manualClock();
+    const sleeps: number[] = [];
+    const fetch = fakeFetch(routes(count));
+    const fetcher = createFinnhubFetcher({
+      apiKey: TEST_API_KEY,
+      fetch,
+      now: clock.now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        clock.advance(ms);
+      },
+    });
+    return { fetcher, fetch, clock, sleeps };
+  }
+
+  it("starts 50 requests at once, then waits until the oldest is a minute old", async () => {
+    const { fetcher, sleeps } = limited(52);
+
+    for (let n = 0; n < 50; n++) await fetcher.getJson(url(n));
+    expect(sleeps).toEqual([]);
+
+    await fetcher.getJson(url(50));
+    expect(sleeps).toEqual([60_000]);
+
+    // The first 50 have aged out by now, so the next request goes straight through.
+    await fetcher.getJson(url(51));
+    expect(sleeps).toEqual([60_000]);
+  });
+
+  it("queues concurrent callers in call order", async () => {
+    const { fetcher, fetch, sleeps } = limited(52);
+
+    await Promise.all(Array.from({ length: 52 }, (_, n) => fetcher.getJson(url(n))));
+
+    expect(fetch.mock.calls.map(([called]) => String(called))).toEqual(Array.from({ length: 52 }, (_, n) => url(n)));
+    expect(sleeps).toHaveLength(2);
+    expect(sleeps[0]).toBe(60_000);
+  });
+});
