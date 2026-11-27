@@ -65,7 +65,7 @@ describe("rate limit", () => {
   const url = (n: number) => `https://finnhub.io/api/v1/quote?symbol=T${n}`;
   const routes = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, n) => [url(n), "{}"]));
 
-  function limited(count: number) {
+  function limited(count: number, { advanceClock = true } = {}) {
     const clock = manualClock();
     const sleeps: number[] = [];
     const fetch = fakeFetch(routes(count));
@@ -75,7 +75,7 @@ describe("rate limit", () => {
       now: clock.now,
       sleep: async (ms) => {
         sleeps.push(ms);
-        clock.advance(ms);
+        if (advanceClock) clock.advance(ms);
       },
     });
     return { fetcher, fetch, clock, sleeps };
@@ -96,12 +96,12 @@ describe("rate limit", () => {
   });
 
   it("queues concurrent callers in call order", async () => {
-    const { fetcher, fetch, sleeps } = limited(52);
+    // The fake clock stays put: sleep() runs synchronously, so advancing it would let the 52nd caller skip its wait.
+    const { fetcher, fetch, sleeps } = limited(52, { advanceClock: false });
 
     await Promise.all(Array.from({ length: 52 }, (_, n) => fetcher.getJson(url(n))));
 
     expect(fetch.mock.calls.map(([called]) => String(called))).toEqual(Array.from({ length: 52 }, (_, n) => url(n)));
-    expect(sleeps).toHaveLength(2);
-    expect(sleeps[0]).toBe(60_000);
+    expect(sleeps).toEqual([60_000, 60_000]);
   });
 });
