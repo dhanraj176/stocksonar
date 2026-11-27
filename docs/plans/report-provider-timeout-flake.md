@@ -56,7 +56,7 @@ This fix changes test code only, so there is no `test(red)` → `feat(green)` pa
 ## Verification
 
 - The reproduction command passes 3 runs in a row, at the default timeout and at `--testTimeout=10`.
-- `npm run test` (full suite) passes 3 runs in a row, and 3 more with the CPU saturated. Check that `report-provider.test.ts` tests stay around 1 ms.
+- `npm run test` (full suite) passes 3 runs in a row, and 3 more with the CPU saturated. Check that no module loads during a test. The first call down each writer path keeps a one-time warm-up (about 9 ms idle, from JIT and the first zod parse, with no module requests), so the later tests are the ones to compare against about 1 ms.
 - `npm run lint`, `npx tsc --noEmit` and `npm run build` pass.
 - Nakul runs `npm run test` 3 times in a row on Windows. This is the acceptance criterion that confirms the fix where the flake was seen. If it still fails, apply the fallback above.
 - The PR description gives the root cause (the section above), the red/green output and the Windows result.
