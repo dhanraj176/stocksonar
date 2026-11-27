@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEST_API_KEY, fakeFetch, forbidGlobalFetch, manualClock, readFixture } from "./fixtures/market/fixtures";
 import { validateReport } from "@/lib/domain/citation-check";
-import { createMarketClient } from "./market";
+import { createMarketClient, getMarketClient } from "./market";
 import { MarketDataError } from "./market-error";
 import { createMemoryCache } from "./memory-cache";
 
@@ -378,4 +378,40 @@ describe("news as citable sources", () => {
     expect(validateReport(cited, news).valid).toBe(true);
     expect(validateReport(invented, news).errors).toEqual([{ section: "bull", claim: 1, reason: "unknown-source", sourceId: "finnhub:news:424242" }]);
   });
+});
+
+describe("getMarketClient", () => {
+  it("throws a config error naming the variable when FINNHUB_API_KEY is missing or blank", () => {
+    for (const value of [undefined, "", "   "]) {
+      vi.stubEnv("FINNHUB_API_KEY", value);
+      const error = (() => {
+        try {
+          getMarketClient();
+        } catch (e) {
+          return e;
+        }
+      })();
+
+      expect(error).toBeInstanceOf(MarketDataError);
+      expect(error).toMatchObject({ kind: "config" });
+      expect((error as Error).message).toContain("FINNHUB_API_KEY");
+    }
+  });
+
+  it("does not read the key at import, so a build needs no env", async () => {
+    vi.stubEnv("FINNHUB_API_KEY", undefined);
+    vi.resetModules();
+
+    await expect(import("./market")).resolves.toHaveProperty("getMarketClient");
+  });
+
+  it("reuses one client (and so one rate limiter) while the key is unchanged, and rebuilds it when the key changes", () => {
+    vi.stubEnv("FINNHUB_API_KEY", "key-one-not-real");
+    const first = getMarketClient();
+    expect(getMarketClient()).toBe(first);
+
+    vi.stubEnv("FINNHUB_API_KEY", "key-two-not-real");
+    expect(getMarketClient()).not.toBe(first);
+  });
+
 });
