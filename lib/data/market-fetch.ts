@@ -1,6 +1,9 @@
 import { MarketDataError } from "./market-error";
 
 const FINNHUB_HOST = "finnhub.io";
+/** Finnhub allows 60 calls a minute on the free plan (and 30 a second); 50 leaves headroom. */
+const MAX_REQUESTS_PER_WINDOW = 50;
+const WINDOW_MS = 60_000;
 
 export type FinnhubFetcherDeps = {
   apiKey: string;
@@ -19,10 +22,25 @@ export type FinnhubFetcher = {
  */
 export function createFinnhubFetcher(deps: FinnhubFetcherDeps): FinnhubFetcher {
   const fetchImpl = deps.fetch ?? fetch;
+  const now = deps.now ?? Date.now;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  /** Start times of the last MAX_REQUESTS_PER_WINDOW requests, including ones still waiting. */
+  const starts: number[] = [];
+
+  /** Reserves a start time synchronously, so concurrent callers queue in call order. */
+  async function waitForSlot() {
+    const current = now();
+    const full = starts.length >= MAX_REQUESTS_PER_WINDOW;
+    const start = full ? Math.max(current, starts[starts.length - MAX_REQUESTS_PER_WINDOW] + WINDOW_MS) : current;
+    starts.push(start);
+    if (starts.length > MAX_REQUESTS_PER_WINDOW) starts.shift();
+    if (start > current) await sleep(start - current);
+  }
 
   return {
     async getJson(url) {
       assertFinnhubUrl(url);
+      await waitForSlot();
       const response = await fetchImpl(url, { headers: { "X-Finnhub-Token": deps.apiKey }, redirect: "error" });
       if (!response.ok) {
         const kind = response.status === 429 ? "rate-limited" : "http";
