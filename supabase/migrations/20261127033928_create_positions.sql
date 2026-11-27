@@ -17,3 +17,35 @@ create table public.positions (
 create trigger positions_set_updated_at
   before update on public.positions
   for each row execute function public.set_updated_at();
+
+alter table public.positions enable row level security;
+
+-- Supabase's default privileges grant everything on new tables to anon and
+-- authenticated. Start from nothing and grant only what the app needs.
+-- id, created_at and updated_at are never client-writable.
+-- PostgREST's upsert (on conflict do update) sets every column in the
+-- payload, user_id and ticker included, so those need update privilege too.
+-- The update policy's with check stops anyone reassigning user_id.
+revoke all on public.positions from anon, authenticated;
+grant select, delete on public.positions to authenticated;
+grant insert (user_id, ticker, quantity, cost_basis_cents, source)
+  on public.positions to authenticated;
+grant update (user_id, ticker, quantity, cost_basis_cents, source)
+  on public.positions to authenticated;
+
+create policy "positions: read own rows" on public.positions
+  for select to authenticated
+  using ((select auth.uid()) = user_id);
+
+create policy "positions: insert own rows" on public.positions
+  for insert to authenticated
+  with check ((select auth.uid()) = user_id);
+
+create policy "positions: update own rows" on public.positions
+  for update to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+create policy "positions: delete own rows" on public.positions
+  for delete to authenticated
+  using ((select auth.uid()) = user_id);
