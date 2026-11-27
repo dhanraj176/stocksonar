@@ -10,7 +10,8 @@ create table public.positions (
   cost_basis_cents bigint not null check (cost_basis_cents >= 0),
   source text not null check (source in ('csv', 'screenshot', 'manual', 'brokerage')), -- no default on purpose
   created_at timestamptz not null default now(), -- timestamptz is stored in UTC
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (user_id, ticker) -- its index also serves the RLS filter on user_id
 );
 
 create trigger positions_set_updated_at
