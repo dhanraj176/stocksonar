@@ -7,7 +7,8 @@ create table public.positions (
   user_id uuid not null references public.profiles (id) on delete cascade,
   ticker text not null check (ticker ~ '^[A-Z][A-Z0-9.-]{0,9}$'),
   quantity numeric(18, 6) not null check (quantity > 0),
-  cost_basis_cents bigint not null check (cost_basis_cents >= 0),
+  -- Upper bound is Number.MAX_SAFE_INTEGER, so every stored row passes the zod schema.
+  cost_basis_cents bigint not null check (cost_basis_cents >= 0 and cost_basis_cents <= 9007199254740991),
   source text not null check (source in ('csv', 'screenshot', 'manual', 'brokerage')), -- no default on purpose
   created_at timestamptz not null default now(), -- timestamptz is stored in UTC
   updated_at timestamptz not null default now(),
