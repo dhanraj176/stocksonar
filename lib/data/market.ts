@@ -9,6 +9,8 @@ import { createMemoryCache, type Cache } from "./memory-cache";
 const API_BASE = "https://finnhub.io/api/v1";
 const QUOTE_TTL_MS = 60 * 1000;
 const MAX_NEWS_ITEMS = 20;
+const MAX_HEADLINE_CHARS = 300;
+const MAX_SUMMARY_CHARS = 1000;
 
 export type MarketClientDeps = {
   apiKey: string;
@@ -68,17 +70,47 @@ const realQuoteSchema = quoteSchema.refine((quote) => quote.c > 0 && quote.t > 0
   message: "quote has no price or no timestamp",
 });
 
+/**
+ * Headlines and summaries come from third parties and may hold instructions meant for an LLM.
+ * They stay plain data: control characters go, whitespace collapses, length is capped by code
+ * point. buildReportPrompt escapes them when they reach a prompt.
+ */
+function cleanText(max: number) {
+  return z
+    .string()
+    .transform((text) => {
+      const flat = text.replace(/[\t\n\r]/g, " ").replace(/\p{Cc}/gu, "").replace(/\s+/g, " ").trim();
+      return Array.from(flat).slice(0, max).join("");
+    });
+}
+
+/** Only web links, with no embedded credentials. */
+const webUrlSchema = z.string().refine((value) => {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.username === "" && url.password === "";
+  } catch {
+    return false;
+  }
+});
+
 /** The parts of a /company-news article the client uses. Unknown keys are stripped. */
 const newsArticleSchema = z.object({
   id: z.number().int().nonnegative(),
   datetime: z.number().int().positive(),
-  headline: z.string(),
-  summary: z.string(),
-  source: z.string(),
-  url: z.string(),
+  headline: cleanText(MAX_HEADLINE_CHARS).pipe(z.string().min(1)),
+  summary: cleanText(MAX_SUMMARY_CHARS),
+  source: cleanText(MAX_HEADLINE_CHARS).pipe(z.string().min(1)),
+  url: webUrlSchema,
 });
 
-const newsResponseSchema = z.array(newsArticleSchema);
+/** The body must be a list. One malformed article is dropped on its own, not allowed to fail the rest. */
+const newsResponseSchema = z.array(z.unknown()).transform((items) =>
+  items.flatMap((item) => {
+    const parsed = newsArticleSchema.safeParse(item);
+    return parsed.success ? [parsed.data] : [];
+  }),
+);
 
 /** What the client caches. Null is a cached "unknown ticker". Re-validated on read. */
 const cachedQuoteSchema = z
@@ -137,7 +169,7 @@ export function createMarketClient(deps: MarketClientDeps): MarketClient {
   };
 }
 
-type NewsArticle = z.infer<typeof newsArticleSchema>;
+type NewsArticle = z.output<typeof newsArticleSchema>;
 
 /** Newest first (ties by id), keeping the first copy seen of each article id and each URL. */
 function newestUnique(articles: NewsArticle[]): NewsArticle[] {
