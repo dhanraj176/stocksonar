@@ -59,9 +59,12 @@ describe("listMyPositions", () => {
   });
 
   it("throws a friendly error when the query fails", async () => {
-    fake.order.mockResolvedValue({ data: null, error: { message: "permission denied" } });
+    const dbError = { message: "permission denied" };
+    fake.order.mockResolvedValue({ data: null, error: dbError });
 
-    await expect(listMyPositions()).rejects.toThrow("Could not load your positions.");
+    const failure = await listMyPositions().catch((e: unknown) => e);
+    expect(failure).toHaveProperty("message", "Could not load your positions.");
+    expect((failure as Error).cause).toBe(dbError);
   });
 
   it("throws when a row fails the schema", async () => {
@@ -108,10 +111,13 @@ describe("upsertMyPosition", () => {
   });
 
   it("turns a database error into a friendly one", async () => {
-    fake.single.mockResolvedValue({ data: null, error: { message: "boom" } });
+    const dbError = { message: "boom" };
+    fake.single.mockResolvedValue({ data: null, error: dbError });
     fake.select.mockReturnValue({ single: fake.single });
 
-    await expect(upsertMyPosition(input)).rejects.toThrow("Could not save your position.");
+    const failure = await upsertMyPosition(input).catch((e: unknown) => e);
+    expect(failure).toHaveProperty("message", "Could not save your position.");
+    expect((failure as Error).cause).toBe(dbError);
   });
 });
 
@@ -132,8 +138,11 @@ describe("deleteMyPosition", () => {
   });
 
   it("turns a database error into a friendly one", async () => {
-    fake.eq.mockReturnValueOnce({ eq: fake.eq }).mockResolvedValueOnce({ error: { message: "boom" } });
+    const dbError = { message: "boom" };
+    fake.eq.mockReturnValueOnce({ eq: fake.eq }).mockResolvedValueOnce({ error: dbError });
 
-    await expect(deleteMyPosition("AAPL")).rejects.toThrow("Could not delete your position.");
+    const failure = await deleteMyPosition("AAPL").catch((e: unknown) => e);
+    expect(failure).toHaveProperty("message", "Could not delete your position.");
+    expect((failure as Error).cause).toBe(dbError);
   });
 });
